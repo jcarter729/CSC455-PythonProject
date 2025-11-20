@@ -18,25 +18,56 @@ async def serve_html():
 @app.route("/offer", methods=["POST"])
 async def offer():
     data = await request.get_json()
-    peer_id = data["peer_id"]
-    offers[peer_id] = data["offer"]
+    # Accept either { "peer_id": "id", "offer": {"type":..., "sdp":...} }
+    # or the flat form { "peer_id": "id", "type": ..., "sdp": ... }
+    print("/offer received:", data)
+    peer_id = data.get("peer_id")
+    if not peer_id:
+        return jsonify({"error": "missing peer_id"}), 400
+
+    offer_obj = data.get("offer")
+    if not offer_obj:
+        # build from flat fields if provided
+        sdp = data.get("sdp")
+        typ = data.get("type")
+        if sdp and typ:
+            offer_obj = {"sdp": sdp, "type": typ}
+        else:
+            return jsonify({"error": "missing offer or sdp/type"}), 400
+
+    offers[peer_id] = offer_obj
     return jsonify({"status": "ok"})
 
 @app.route("/get_offer/<peer_id>", methods=["GET"])
 async def get_offer(peer_id):
-    return jsonify({"offer": offers.get(peer_id)})
+    # Return the raw offer object (or empty object) so clients can call setRemoteDescription
+    return jsonify(offers.get(peer_id, {}))
 
 # ---- ANSWER ----
 @app.route("/answer", methods=["POST"])
 async def answer():
     data = await request.get_json()
-    peer_id = data["peer_id"]
-    answers[peer_id] = data["answer"]
+    print("/answer received:", data)
+    peer_id = data.get("peer_id")
+    if not peer_id:
+        return jsonify({"error": "missing peer_id"}), 400
+
+    answer_obj = data.get("answer")
+    if not answer_obj:
+        sdp = data.get("sdp")
+        typ = data.get("type")
+        if sdp and typ:
+            answer_obj = {"sdp": sdp, "type": typ}
+        else:
+            return jsonify({"error": "missing answer or sdp/type"}), 400
+
+    answers[peer_id] = answer_obj
     return jsonify({"status": "ok"})
 
 @app.route("/get_answer/<peer_id>", methods=["GET"])
 async def get_answer(peer_id):
-    return jsonify({"answer": answers.get(peer_id)})
+    # Return the raw answer object (or empty object)
+    return jsonify(answers.get(peer_id, {}))
 
 # ---- ICE CANDIDATES ----
 @app.route("/candidate", methods=["POST"])

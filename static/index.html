@@ -25,11 +25,34 @@
     <script>
         const localVideo = document.getElementById("localVideo");
         const remoteVideo = document.getElementById("remoteVideo");
-        const pc = new RTCPeerConnection();
+
+        // Add a visible control so users explicitly start their camera
+        const startBtn = document.createElement('button');
+        startBtn.id = 'startBtn';
+        startBtn.textContent = 'Start Camera & Connect';
+        startBtn.style.position = 'fixed';
+        startBtn.style.bottom = '20px';
+        startBtn.style.left = '20px';
+        startBtn.style.padding = '8px 12px';
+        startBtn.style.fontSize = '14px';
+        document.body.appendChild(startBtn);
+
+        const statusSpan = document.createElement('span');
+        statusSpan.id = 'status';
+        statusSpan.style.position = 'fixed';
+        statusSpan.style.bottom = '24px';
+        statusSpan.style.left = '170px';
+        statusSpan.style.color = 'lightgreen';
+        document.body.appendChild(statusSpan);
 
         // === CONFIG ===
-        const peerId = "peer1";        // Change to "peer2" on second laptop
-        const remotePeerId = "peer2";  // Change to "peer1" on second laptop
+        const peerId = "peer2";        // Change to "peer2" on second laptop
+        const remotePeerId = "peer1";  // Change to "peer1" on second laptop
+
+        // Use a public STUN server to help with NAT traversal
+        const pc = new RTCPeerConnection({
+            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
 
         // Store ICE candidates
         async function sendCandidate(candidate) {
@@ -56,16 +79,32 @@
             if (event.candidate) sendCandidate(event.candidate);
         };
 
-        async function start() {
-            // 1. Get local video
-            const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-            localVideo.srcObject = localStream;
-            localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+        // When user clicks, request camera permission and start signaling
+        startBtn.addEventListener('click', async () => {
+            startBtn.disabled = true;
+            statusSpan.textContent = 'Requesting camera...';
+            try {
+                const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                localVideo.srcObject = localStream;
+                localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+                statusSpan.textContent = 'Camera active — connecting...';
+                await runSignaling();
+            } catch (err) {
+                console.error('getUserMedia failed:', err);
+                statusSpan.textContent = 'Camera permission denied';
+                startBtn.disabled = false;
+            }
+        });
 
-            // 2. Check for remote offer
+        async function runSignaling() {
+            // 1. Check for remote offer
             let remoteOffer = null;
-            const res = await fetch(`/get_offer/${remotePeerId}`);
-            remoteOffer = await res.json();
+            try {
+                const res = await fetch(`/get_offer/${remotePeerId}`);
+                remoteOffer = await res.json();
+            } catch (e) {
+                console.error('Failed to fetch remote offer:', e);
+            }
 
             if (remoteOffer && remoteOffer.sdp) {
                 // Remote peer has offer → create answer
@@ -73,20 +112,13 @@
                 const answer = await pc.createAnswer();
                 await pc.setLocalDescription(answer);
 
-                // Send answer
+                // Send answer (flat form)
                 await fetch("/answer", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        peer_id: peerId,
-                        answer: {
-                            type: answer.type,
-                            sdp: answer.sdp
-                        }
-                    })
+                    body: JSON.stringify({ peer_id: peerId, sdp: answer.sdp, type: answer.type })
                 });
-            }
-            else {
+            } else {
                 // No offer → create offer
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(offer);
@@ -94,26 +126,30 @@
                 await fetch("/offer", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        peer_id: peerId,
-                        offer: {
-                            type: offer.type,
-                            sdp: offer.sdp
-                        }
-                    })
+                    body: JSON.stringify({ peer_id: peerId, sdp: offer.sdp, type: offer.type })
                 });
             }
 
-            // 3. Poll for remote answer
+            // 2. Poll for remote answer
             let remoteAnswer = null;
             while (!remoteAnswer || !remoteAnswer.sdp) {
                 await new Promise(r => setTimeout(r, 1000));
-                const res = await fetch(`/get_answer/${remotePeerId}`);
-                remoteAnswer = await res.json();
+                try {
+                    const res = await fetch(`/get_answer/${remotePeerId}`);
+                    remoteAnswer = await res.json();
+                } catch (e) {
+                    console.warn('Error polling for answer:', e);
+                }
             }
-            await pc.setRemoteDescription(remoteAnswer);
+            try {
+                await pc.setRemoteDescription(remoteAnswer);
+                statusSpan.textContent = 'Connected';
+                console.log('✅ WebRTC connection established!');
+            } catch (e) {
+                console.error('Failed to set remote description:', e);
+            }
 
-            // 4. Poll for remote ICE candidates and add them
+            // 3. Poll for remote ICE candidates and add them
             setInterval(async () => {
                 const candidates = await getRemoteCandidates();
                 for (const c of candidates) {
@@ -124,11 +160,7 @@
                     }
                 }
             }, 1000);
-
-            console.log("✅ WebRTC connection established!");
         }
-
-        start();
     </script>
 </body>
 </html>
