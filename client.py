@@ -36,4 +36,4 @@ async def run(peer_ip):
     # answer_sdp = ...
     # await pc.setRemoteDescription(RTCSessionDescription(sdp=answer_sdp, type="answer"))
 
-asyncio.run(run("192.168.1.2"))  # IP of the other computer
+asyncio.run(run("172.26.95.31"))  # IP of the other computer
