@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Two-Way Video</title>
+    <title>Two-Way Video with ICE</title>
     <style>
         body {
             display: flex;
@@ -28,13 +28,32 @@
         const pc = new RTCPeerConnection();
 
         // === CONFIG ===
-        // Set a unique ID for each computer
-        const peerId = "peer1";
-        const remotePeerId = "peer2";
+        const peerId = "peer1";        // Change to "peer2" on second laptop
+        const remotePeerId = "peer2";  // Change to "peer1" on second laptop
 
-        // Show remote video when a track is received
+        // Store ICE candidates
+        async function sendCandidate(candidate) {
+            await fetch("/candidate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ peer_id: peerId, candidate })
+            });
+        }
+
+        async function getRemoteCandidates() {
+            const res = await fetch(`/get_candidates/${remotePeerId}`);
+            const data = await res.json();
+            return data.candidates || [];
+        }
+
+        // Show remote video
         pc.ontrack = (event) => {
             remoteVideo.srcObject = event.streams[0];
+        };
+
+        // Send local ICE candidates to server
+        pc.onicecandidate = (event) => {
+            if (event.candidate) sendCandidate(event.candidate);
         };
 
         async function start() {
@@ -43,37 +62,36 @@
             localVideo.srcObject = localStream;
             localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
-            // 2. Create offer and post it to server
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-
-            await fetch("/offer", {
-                method: "POST",
-                headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({peer_id: peerId, sdp: offer.sdp, type: offer.type})
-            });
-
-            // 3. Poll server for remote peer's offer
+            // 2. Check for remote offer
             let remoteOffer = null;
-            while (!remoteOffer || !remoteOffer.sdp) {
-                await new Promise(r => setTimeout(r, 1000));
-                const res = await fetch(`/get_offer/${remotePeerId}`);
-                remoteOffer = await res.json();
+            const res = await fetch(`/get_offer/${remotePeerId}`);
+            remoteOffer = await res.json();
+
+            if (remoteOffer && remoteOffer.sdp) {
+                // Remote peer has offer → create answer
+                await pc.setRemoteDescription(remoteOffer);
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+
+                // Send answer
+                await fetch("/answer", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ peer_id: peerId, sdp: answer.sdp, type: answer.type })
+                });
+            } else {
+                // No offer → create offer
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+
+                await fetch("/offer", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ peer_id: peerId, sdp: offer.sdp, type: offer.type })
+                });
             }
 
-            // 4. Set remote offer and create answer
-            await pc.setRemoteDescription(remoteOffer);
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-
-            // 5. Post answer back to server
-            await fetch("/answer", {
-                method: "POST",
-                headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({peer_id: peerId, sdp: answer.sdp, type: answer.type})
-            });
-
-            // 6. Poll server for remote peer's answer (in case offer was created second)
+            // 3. Poll for remote answer
             let remoteAnswer = null;
             while (!remoteAnswer || !remoteAnswer.sdp) {
                 await new Promise(r => setTimeout(r, 1000));
@@ -81,6 +99,20 @@
                 remoteAnswer = await res.json();
             }
             await pc.setRemoteDescription(remoteAnswer);
+
+            // 4. Poll for remote ICE candidates and add them
+            setInterval(async () => {
+                const candidates = await getRemoteCandidates();
+                for (const c of candidates) {
+                    try {
+                        await pc.addIceCandidate(c);
+                    } catch (e) {
+                        console.warn("Failed to add ICE candidate:", e);
+                    }
+                }
+            }, 1000);
+
+            console.log("✅ WebRTC connection established!");
         }
 
         start();
