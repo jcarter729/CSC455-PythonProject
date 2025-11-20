@@ -77,9 +77,16 @@
                 await fetch("/answer", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ peer_id: peerId, sdp: answer.sdp, type: answer.type })
+                    body: JSON.stringify({
+                        peer_id: peerId,
+                        answer: {
+                            type: answer.type,
+                            sdp: answer.sdp
+                        }
+                    })
                 });
-            } else {
+            }
+            else {
                 // No offer → create offer
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(offer);
@@ -87,7 +94,13 @@
                 await fetch("/offer", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ peer_id: peerId, sdp: offer.sdp, type: offer.type })
+                    body: JSON.stringify({
+                        peer_id: peerId,
+                        offer: {
+                            type: offer.type,
+                            sdp: offer.sdp
+                        }
+                    })
                 });
             }
 
