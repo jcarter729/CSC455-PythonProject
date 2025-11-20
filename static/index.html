@@ -3,8 +3,19 @@
 <head>
     <title>Two-Way Video</title>
     <style>
-        body { display: flex; gap: 10px; justify-content: center; align-items: center; height: 100vh; background: #222; }
-        video { border: 3px solid white; border-radius: 8px; width: 45%; }
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            gap: 10px;
+            background: #222;
+        }
+        video {
+            width: 45%;
+            border: 3px solid white;
+            border-radius: 8px;
+        }
     </style>
 </head>
 <body>
@@ -16,41 +27,60 @@
         const remoteVideo = document.getElementById("remoteVideo");
         const pc = new RTCPeerConnection();
 
-        // Show remote track
+        // === CONFIG ===
+        // Set a unique ID for each computer
+        const peerId = "peer1";
+        const remotePeerId = "peer2";
+
+        // Show remote video when a track is received
         pc.ontrack = (event) => {
             remoteVideo.srcObject = event.streams[0];
         };
 
         async function start() {
-            // Get local video
+            // 1. Get local video
             const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
             localVideo.srcObject = localStream;
-
-            // Add all local tracks to peer connection
             localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
-            // Create offer
+            // 2. Create offer and post it to server
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
 
-            // Send offer to server
-            const peerId = "peer1";  // change on second computer
-            const offerResponse = await fetch("/offer", {
+            await fetch("/offer", {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify({peer_id: peerId, sdp: offer.sdp, type: offer.type})
             });
-            await offerResponse.json();
 
-            // Poll server for answer
-            let answerData = null;
-            while (!answerData || !answerData.sdp) {
+            // 3. Poll server for remote peer's offer
+            let remoteOffer = null;
+            while (!remoteOffer || !remoteOffer.sdp) {
                 await new Promise(r => setTimeout(r, 1000));
-                const res = await fetch(`/get_answer/${peerId}`);
-                answerData = await res.json();
+                const res = await fetch(`/get_offer/${remotePeerId}`);
+                remoteOffer = await res.json();
             }
 
-            await pc.setRemoteDescription(answerData);
+            // 4. Set remote offer and create answer
+            await pc.setRemoteDescription(remoteOffer);
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+
+            // 5. Post answer back to server
+            await fetch("/answer", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({peer_id: peerId, sdp: answer.sdp, type: answer.type})
+            });
+
+            // 6. Poll server for remote peer's answer (in case offer was created second)
+            let remoteAnswer = null;
+            while (!remoteAnswer || !remoteAnswer.sdp) {
+                await new Promise(r => setTimeout(r, 1000));
+                const res = await fetch(`/get_answer/${remotePeerId}`);
+                remoteAnswer = await res.json();
+            }
+            await pc.setRemoteDescription(remoteAnswer);
         }
 
         start();
