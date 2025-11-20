@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Two-Way Video</title>
+    <style>
+        body { display: flex; gap: 10px; justify-content: center; align-items: center; height: 100vh; background: #222; }
+        video { border: 3px solid white; border-radius: 8px; width: 45%; }
+    </style>
+</head>
+<body>
+    <video id="localVideo" autoplay playsinline muted></video>
+    <video id="remoteVideo" autoplay playsinline></video>
+
+    <script>
+        const localVideo = document.getElementById("localVideo");
+        const remoteVideo = document.getElementById("remoteVideo");
+        const pc = new RTCPeerConnection();
+
+        // Show remote track
+        pc.ontrack = (event) => {
+            remoteVideo.srcObject = event.streams[0];
+        };
+
+        async function start() {
+            // Get local video
+            const localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+            localVideo.srcObject = localStream;
+
+            // Add all local tracks to peer connection
+            localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+            // Create offer
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+
+            // Send offer to server
+            const peerId = "peer1";  // change on second computer
+            const offerResponse = await fetch("/offer", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({peer_id: peerId, sdp: offer.sdp, type: offer.type})
+            });
+            await offerResponse.json();
+
+            // Poll server for answer
+            let answerData = null;
+            while (!answerData || !answerData.sdp) {
+                await new Promise(r => setTimeout(r, 1000));
+                const res = await fetch(`/get_answer/${peerId}`);
+                answerData = await res.json();
+            }
+
+            await pc.setRemoteDescription(answerData);
+        }
+
+        start();
+    </script>
+</body>
+</html>
