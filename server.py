@@ -1,92 +1,82 @@
-from quart import Quart, request, jsonify, send_from_directory
-import os
+import cv2
+import socket
+import struct
+import pickle
+import numpy as np
+from Crypto.Cipher import AES
 
-app = Quart(__name__)
+# Shared AES key (must match client)
+# AES key must be 16, 24 or 32 bytes. Use 16 bytes here.
+key = b'supersecretkey12'  # 16 bytes
+# GCM nonce is normally 12 bytes
+nonce = b'unique_nonce'    # 12 bytes
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Socket setup
+HOST = '0.0.0.0'
+PORT = 9999
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.bind((HOST, PORT))
+sock.listen(1)
+print("Server listening...")
+conn, addr = sock.accept()
+print("Connected by", addr)
 
-# Storage for WebRTC data between browsers
-offers = {}
-answers = {}
-candidates = {}
+data = b""
+payload_size = struct.calcsize("Q")
 
-@app.route('/')
-async def serve_html():
-    return await send_from_directory(os.path.join(BASE_DIR, 'static'), 'index.html')
+cap = cv2.VideoCapture(0)
 
-# ---- OFFER ----
-@app.route("/offer", methods=["POST"])
-async def offer():
-    data = await request.get_json()
-    # Accept either { "peer_id": "id", "offer": {"type":..., "sdp":...} }
-    # or the flat form { "peer_id": "id", "type": ..., "sdp": ... }
-    print("/offer received:", data)
-    peer_id = data.get("peer_id")
-    if not peer_id:
-        return jsonify({"error": "missing peer_id"}), 400
+while True:
+    # Show local webcam
+    ret, local_frame = cap.read()
+    if ret:
+        cv2.imshow("You", local_frame)
 
-    offer_obj = data.get("offer")
-    if not offer_obj:
-        # build from flat fields if provided
-        sdp = data.get("sdp")
-        typ = data.get("type")
-        if sdp and typ:
-            offer_obj = {"sdp": sdp, "type": typ}
-        else:
-            return jsonify({"error": "missing offer or sdp/type"}), 400
+    # Receive peer frame
+    while len(data) < payload_size:
+        packet = conn.recv(4096)
+        if not packet:
+            break
+        data += packet
 
-    offers[peer_id] = offer_obj
-    return jsonify({"status": "ok"})
+    if len(data) < payload_size:
+        break
 
-@app.route("/get_offer/<peer_id>", methods=["GET"])
-async def get_offer(peer_id):
-    # Return the raw offer object (or empty object) so clients can call setRemoteDescription
-    return jsonify(offers.get(peer_id, {}))
+    packed_msg_size = data[:payload_size]
+    msg_size = struct.unpack("Q", packed_msg_size)[0]
+    data = data[payload_size:]
 
-# ---- ANSWER ----
-@app.route("/answer", methods=["POST"])
-async def answer():
-    data = await request.get_json()
-    print("/answer received:", data)
-    peer_id = data.get("peer_id")
-    if not peer_id:
-        return jsonify({"error": "missing peer_id"}), 400
+    while len(data) < msg_size:
+        data += conn.recv(4096)
 
-    answer_obj = data.get("answer")
-    if not answer_obj:
-        sdp = data.get("sdp")
-        typ = data.get("type")
-        if sdp and typ:
-            answer_obj = {"sdp": sdp, "type": typ}
-        else:
-            return jsonify({"error": "missing answer or sdp/type"}), 400
+    frame_data = data[:msg_size]
+    data = data[msg_size:]
 
-    answers[peer_id] = answer_obj
-    return jsonify({"status": "ok"})
+    payload = pickle.loads(frame_data)
 
-@app.route("/get_answer/<peer_id>", methods=["GET"])
-async def get_answer(peer_id):
-    # Return the raw answer object (or empty object)
-    return jsonify(answers.get(peer_id, {}))
+    # Decrypt (GCM) — payload contains ciphertext and tag
+    ciphertext = payload.get("ct")
+    tag = payload.get("tag")
+    cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+    plaintext = cipher.decrypt(ciphertext)
+    try:
+        cipher.verify(tag)
+    except ValueError:
+        # Authentication failed
+        print("WARNING: AES GCM tag verification failed")
+        continue
 
-# ---- ICE CANDIDATES ----
-@app.route("/candidate", methods=["POST"])
-async def candidate():
-    data = await request.get_json()
-    peer_id = data["peer_id"]
-    cand = data["candidate"]
+    # Decode JPEG
+    peer_frame = cv2.imdecode(
+        np.frombuffer(plaintext, dtype=np.uint8), cv2.IMREAD_COLOR
+    )
 
-    if peer_id not in candidates:
-        candidates[peer_id] = []
-    candidates[peer_id].append(cand)
+    if peer_frame is not None:
+        cv2.imshow("Peer", peer_frame)
 
-    return jsonify({"status": "ok"})
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
 
-@app.route("/get_candidates/<peer_id>", methods=["GET"])
-async def get_candidates(peer_id):
-    return jsonify({"candidates": candidates.get(peer_id, [])})
-
-# ---- RUN SERVER ----
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(app.run_task(host="0.0.0.0", port=5000))
+cap.release()
+conn.close()
+cv2.destroyAllWindows()
