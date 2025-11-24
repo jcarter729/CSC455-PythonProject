@@ -11,7 +11,7 @@ key = b'supersecretkey12'  # 16 bytes
 nonce = b'unique_nonce'    # 12 bytes
 
 # Socket setup
-HOST = '127.0.0.1'  # replace with server IP
+HOST = '172.26.22.58'  # replace with server IP
 PORT = 9999
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 sock.connect((HOST, PORT))
