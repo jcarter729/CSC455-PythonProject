@@ -157,7 +157,5 @@ Notes for internet (non-LAN) setups
 Security note
 - The example uses a symmetric AES key hardcoded in the scripts for demonstration. For any real deployment:
   - Use a secure key exchange (e.g., Diffie-Hellman over TLS) and unique keys per session.
-  - Never hardcode long-term secrets into source files in production.
-
-If you want, I can add a short checklist to the README for router port forwarding, or patch the code to accept `--host`/`--port` command-line arguments so you don't edit the file each time.
+  - Never hardcode long-term secrets into source files in production.\
 
