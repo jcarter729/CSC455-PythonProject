@@ -32,13 +32,26 @@ class BidirectionalClient:
     def send_video_thread(self):
         """Send local video to remote machine"""
         print(f"Attempting to connect to {self.server_host}:{self.send_port}")
-        time.sleep(3)  # Wait for remote server to start
+        
+        # Try multiple times to connect
+        sock = None
+        for attempt in range(10):  # Try for 10 seconds
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(2)
+                sock.connect((self.server_host, self.send_port))
+                print(f"✅ Connected to {self.server_host}:{self.send_port} for sending video")
+                break
+            except (socket.timeout, ConnectionRefusedError):
+                if sock:
+                    sock.close()
+                print(f"Attempt {attempt + 1}/10 - waiting for partner...")
+                time.sleep(1)
+        else:
+            print("❌ Could not connect to partner after 10 attempts")
+            return
         
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.connect((self.server_host, self.send_port))
-            print(f"Connected to {self.server_host}:{self.send_port} for sending video")
-            
             while self.running:
                 ret, frame = self.cap.read()
                 if not ret:
@@ -49,7 +62,7 @@ class BidirectionalClient:
                 cv2.imshow("You (Local)", frame)
                 
                 # Encode frame as JPEG
-                _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 50])
                 data = buffer.tobytes()
 
                 # Encrypt with GCM
@@ -61,8 +74,8 @@ class BidirectionalClient:
                 message = pickle.dumps({"ct": ciphertext, "tag": tag})
                 try:
                     sock.sendall(struct.pack("Q", len(message)) + message)
-                except:
-                    print("Failed to send frame")
+                except Exception as e:
+                    print(f"Connection lost: {e}")
                     break
 
                 if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -72,25 +85,27 @@ class BidirectionalClient:
         except Exception as e:
             print(f"Send video error: {e}")
         finally:
-            try:
+            if sock:
                 sock.close()
-            except:
-                pass
     
     def receive_video_thread(self):
         """Receive video from remote machine"""
+        server_sock = None
+        conn = None
         try:
             # Create server socket to receive video
             server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server_sock.bind(('0.0.0.0', self.receive_port))
             server_sock.listen(1)
-            print(f"Listening for incoming video on port {self.receive_port}")
+            print(f"📡 Listening for incoming video on port {self.receive_port}")
             
+            server_sock.settimeout(20)  # 20 second timeout
             conn, addr = server_sock.accept()
-            print(f"Receiving video from {addr}")
+            print(f"✅ Receiving video from {addr}")
             
             payload_size = struct.calcsize("Q")
+            frame_count = 0
             
             while self.running:
                 # Read message size
@@ -114,7 +129,6 @@ class BidirectionalClient:
                     tag = packet.get("tag")
                     
                     if ciphertext is None or tag is None:
-                        print("Malformed packet received")
                         continue
                     
                     cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
@@ -125,28 +139,30 @@ class BidirectionalClient:
                     frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
                     
                     if frame is not None:
+                        frame_count += 1
                         cv2.imshow("Remote (Them)", frame)
                         if cv2.waitKey(1) & 0xFF == ord('q'):
                             self.running = False
                             break
-                    else:
-                        print("Failed to decode received frame")
                         
-                except ValueError as e:
-                    print(f"Decryption failed: {e}")
-                    continue
-                except Exception as e:
-                    print(f"Error processing received frame: {e}")
-                    continue
+                        # Print status every 60 frames
+                        if frame_count % 60 == 0:
+                            print(f"📺 Received {frame_count} frames")
+                        
+                except ValueError:
+                    continue  # Skip bad frames
+                except Exception:
+                    continue  # Skip problematic frames
                     
+        except socket.timeout:
+            print("❌ No partner connected within 20 seconds")
         except Exception as e:
-            print(f"Receive video error: {e}")
+            print(f"Receive error: {e}")
         finally:
-            try:
+            if conn:
                 conn.close()
+            if server_sock:
                 server_sock.close()
-            except:
-                pass
     
     def start(self):
         """Start both sending and receiving threads"""

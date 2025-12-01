@@ -47,45 +47,67 @@ ipconfig
 
 Look for the **IPv4 Address** under your active network adapter (example: `192.168.1.100`)
 
-## 🎬 Starting the Application
+## Starting the Application
 
-### Computer A (First Person)
+**IMPORTANT: Startup Order Matters!**
 
-1. **Run the client:**
-   ```powershell
-   python client.py
-   ```
+### Step 1: Partner (Computer B) Starts FIRST
 
-2. **Enter partner's IP when prompted:**
-   ```
-   === Bidirectional Encrypted Video Chat ===
-   This machine will:
-   - Send video TO partner on port 9999
-   - Receive video FROM partner on port 9998
+Your partner at `172.26.85.81` must start first:
 
-   Enter your partner's IP address: 192.168.1.200
-   ```
+```powershell
+python partner_client.py
+```
 
-3. **Wait for connection** - You'll see "Listening for incoming video on port 9998"
+Enter your IP address when prompted: `172.26.29.7`
 
-### Computer B (Second Person)
+You'll see: `Listening for incoming video on port 9999`
 
-1. **Run the partner client:**
-   ```powershell
-   python partner_client.py
-   ```
+### Step 2: You (Computer A) Start SECOND
 
-2. **Enter first person's IP when prompted:**
-   ```
-   === Bidirectional Encrypted Video Chat (Partner) ===
-   This machine will:
-   - Send video TO partner on port 9998
-   - Receive video FROM partner on port 9999
+After your partner is listening, then you run:
 
-   Enter your partner's IP address: 192.168.1.100
-   ```
+```powershell
+python client.py
+```
 
-3. **Connection established** - Both video windows should appear!
+Enter partner's IP when prompted: `172.26.85.81`
+
+### Step 3: Connection Should Establish
+
+Both should see:
+- `Connected to [IP]:PORT for sending video`
+- `Receiving video from [IP]`
+- Two video windows appear
+
+## ⚠️ If "Cleanup complete" Appears Immediately
+
+This means connection failed. Try these fixes:
+
+### Fix 1: Check Partner is Running First
+- Partner MUST run `partner_client.py` first
+- Wait for "Listening for incoming video on port 9999"
+- Then you run `client.py`
+
+### Fix 2: Test Basic Connection
+```powershell
+# You run this to test partner's port
+Test-NetConnection -ComputerName 172.26.85.81 -Port 9999
+
+# Partner runs this to test your port  
+Test-NetConnection -ComputerName 172.26.29.7 -Port 9998
+```
+
+### Fix 3: Simple Socket Test
+Have your partner run this first:
+```powershell
+python -c "import socket; s=socket.socket(); s.bind(('0.0.0.0', 9999)); s.listen(1); print('Ready on port 9999'); s.accept()"
+```
+
+Then you test connection:
+```powershell
+python -c "import socket; s=socket.socket(); s.connect(('172.26.85.81', 9999)); print('Connected!'); s.close()"
+```
 
 ## 📺 What You'll See
 
