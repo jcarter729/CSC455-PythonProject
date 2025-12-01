@@ -40,7 +40,7 @@ class BidirectionalClient:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.settimeout(2)
                 sock.connect((self.server_host, self.send_port))
-                print(f"✅ Connected to {self.server_host}:{self.send_port} for sending video")
+                print(f"Connected to {self.server_host}:{self.send_port} for sending video")
                 break
             except (socket.timeout, ConnectionRefusedError):
                 if sock:
@@ -48,7 +48,7 @@ class BidirectionalClient:
                 print(f"Attempt {attempt + 1}/10 - waiting for partner...")
                 time.sleep(1)
         else:
-            print("❌ Could not connect to partner after 10 attempts")
+            print("Could not connect to partner after 10 attempts")
             return
         
         try:
@@ -98,11 +98,11 @@ class BidirectionalClient:
             server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server_sock.bind(('0.0.0.0', self.receive_port))
             server_sock.listen(1)
-            print(f"📡 Listening for incoming video on port {self.receive_port}")
+            print(f"Listening for incoming video on port {self.receive_port}")
             
             server_sock.settimeout(20)  # 20 second timeout
             conn, addr = server_sock.accept()
-            print(f"✅ Receiving video from {addr}")
+            print(f"Receiving video from {addr}")
             
             payload_size = struct.calcsize("Q")
             frame_count = 0
@@ -147,7 +147,7 @@ class BidirectionalClient:
                         
                         # Print status every 60 frames
                         if frame_count % 60 == 0:
-                            print(f"📺 Received {frame_count} frames")
+                            print(f"Received {frame_count} frames")
                         
                 except ValueError:
                     continue  # Skip bad frames
@@ -155,7 +155,7 @@ class BidirectionalClient:
                     continue  # Skip problematic frames
                     
         except socket.timeout:
-            print("❌ No partner connected within 20 seconds")
+            print("No partner connected within 20 seconds")
         except Exception as e:
             print(f"Receive error: {e}")
         finally:
@@ -166,11 +166,11 @@ class BidirectionalClient:
     
     def start(self):
         """Start both sending and receiving threads"""
-        print("🚀 Starting bidirectional video client...")
+        print("Starting bidirectional video client...")
         
         # Check camera first
         if not self.cap.isOpened():
-            print("❌ Camera not available!")
+            print("Camera not available!")
             return
         
         # Start receive thread (server for incoming video)
@@ -184,7 +184,7 @@ class BidirectionalClient:
         send_thread.start()
         
         print("Press 'q' in any video window to quit")
-        print("⏳ Connecting...")
+        print("Connecting...")
         
         try:
             # Keep main thread alive
@@ -198,7 +198,7 @@ class BidirectionalClient:
                     
                     if local_visible and remote_visible:
                         if not hasattr(self, 'connection_announced'):
-                            print("🎉 Video call connected! Both video windows active.")
+                            print("Video call connected! Both video windows active.")
                             self.connection_announced = True
                     
                     # If windows are closed, quit
