@@ -188,20 +188,31 @@ class BidirectionalClient:
         print("Cleanup complete")
 
 if __name__ == "__main__":
-    # Configuration - CHANGE THESE FOR EACH MACHINE
+    print("=== Bidirectional Encrypted Video Chat ===")
+    print("This machine will:")
+    print("- Send video TO partner on port 9999")
+    print("- Receive video FROM partner on port 9998")
+    print()
     
-    # MACHINE A Configuration (Your machine):
+    # Get partner's IP address dynamically
+    while True:
+        partner_ip = input("Enter your partner's IP address: ").strip()
+        if partner_ip:
+            # Basic IP validation
+            parts = partner_ip.split('.')
+            if len(parts) == 4 and all(part.isdigit() and 0 <= int(part) <= 255 for part in parts):
+                break
+            else:
+                print("Invalid IP format. Please use format: 192.168.1.100")
+        else:
+            print("IP address cannot be empty.")
+    
+    print(f"\nConnecting to partner at {partner_ip}...")
+    
     client = BidirectionalClient(
-        server_host='172.26.29.7',  # Partner's IP (where to send your video)
+        server_host=partner_ip,     # Partner's IP (entered by user)
         send_port=9999,             # Port to send to on partner's machine
         receive_port=9998           # Port to listen on for partner's video
     )
-    
-    # MACHINE B Configuration (Partner's machine):
-    # client = BidirectionalClient(
-    #     server_host='172.26.85.81',  # Your IP (where to send partner's video)  
-    #     send_port=9998,              # Port to send to on your machine
-    #     receive_port=9999            # Port to listen on for your video
-    # )
     
     client.start()

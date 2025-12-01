@@ -1,49 +1,49 @@
 # Real‑Time Encrypted Video Conferencing
 
-This project demonstrates a simple encrypted video conferencing app using Python, OpenCV, sockets, and PyCryptodome.
+This project demonstrates a bidirectional encrypted video conferencing system using Python, OpenCV, sockets, and PyCryptodome. Both participants can see each other's video feeds simultaneously with end-to-end encryption.
 
 ## Quick Start (Windows / PowerShell)
 
-Follow these exact commands to create a known-working environment and run both sides on one machine.
+### Setup Environment
 
-- **Create a Python 3.11 venv and install dependencies**
+**Create a Python 3.11 venv and install dependencies:**
 ```powershell
 py -3.11 -m venv .venv311
 .\.venv311\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install opencv-python pycryptodome
+python -m pip install opencv-python pycryptodome numpy
 ```
 
-- **(Alternate — run without activating)**
+**Alternate (run without activating):**
 ```powershell
 .\.venv311\Scripts\python.exe -m pip install --upgrade pip
-.\.venv311\Scripts\python.exe -m pip install opencv-python pycryptodome
+.\.venv311\Scripts\python.exe -m pip install opencv-python pycryptodome numpy
 ```
 
-- **Set the client to connect to the local server (one-machine test)**
-  - Edit `client.py` and make sure the `HOST` line reads:
-    ```python
-    HOST = '127.0.0.1'
-    ```
-  - Or run this PowerShell one-liner (it replaces the HOST line automatically):
-    ```powershell
-(Get-Content client.py) -replace "HOST = '.*'","HOST = '127.0.0.1'" | Set-Content client.py
-    ```
+### Running Bidirectional Video Chat
 
-- **Run the server (Terminal 1)**
-```powershell
-# activate venv (optional)
-.\.venv311\Scripts\Activate.ps1
-# or run directly without activating:
-.\.venv311\Scripts\python.exe .\server.py
-```
-
-- **Run the client (Terminal 2 — new terminal)**
+**Machine A (your computer):**
 ```powershell
 .\.venv311\Scripts\Activate.ps1
 python .\client.py
-# or without activating:
-.\.venv311\Scripts\python.exe .\client.py
+```
+- When prompted, enter Machine B's IP address
+- You'll see two windows: "You (Local)" and "Remote (Them)"
+
+**Machine B (partner's computer):**
+```powershell
+.\.venv311\Scripts\Activate.ps1
+python .\partner_client.py
+```
+- When prompted, enter Machine A's IP address
+- You'll see two windows: "You (Local)" and "Remote (Them)"
+
+### Firewall Setup Required
+
+Both machines need these ports open:
+```powershell
+New-NetFirewallRule -DisplayName "Video Chat 9998" -Direction Inbound -LocalPort 9998 -Protocol TCP -Action Allow
+New-NetFirewallRule -DisplayName "Video Chat 9999" -Direction Inbound -LocalPort 9999 -Protocol TCP -Action Allow
 ```
 
 ## Notes & Troubleshooting
@@ -79,80 +79,49 @@ Remove-Item -Recurse -Force .\.venv
 ```
 
 ## Files
-- `server.py` – listens for incoming video
-- `client.py` – connects and sends video
+- `client.py` – bidirectional video client for Machine A
+- `partner_client.py` – bidirectional video client for Machine B  
+- `server.py` – *(legacy, not used in bidirectional setup)*
 
-## Quick Test (one machine)
+## How It Works
 
-1. Create & install the venv as shown above.
-2. Ensure `client.py` has `HOST = '127.0.0.1'`.
-3. In Terminal 1 run the server:
-   ```powershell
-   .\.venv311\Scripts\python.exe .\server.py
-   ```
-4. In Terminal 2 run the client:
-   ```powershell
-   .\.venv311\Scripts\python.exe .\client.py
-   ```
-5. Press `q` in either OpenCV window to quit.
+### Bidirectional Architecture
+Each machine runs a client that acts as both sender and receiver:
 
-If anything fails, copy the exact error output and paste it into an issue or here — the README intentionally includes the most common fixes so you don't need to repeat the setup process.
+**Machine A (`client.py`):**
+- Sends video TO Machine B on port 9999
+- Receives video FROM Machine B on port 9998
 
-## Run on Different Machines (server + client on separate computers)
+**Machine B (`partner_client.py`):**
+- Sends video TO Machine A on port 9998  
+- Receives video FROM Machine A on port 9999
 
-Follow these steps when the server and client are on different machines on the same LAN or over the internet.
+### Security Features
+- **AES-GCM Encryption**: All video frames encrypted before transmission
+- **Authenticated Encryption**: Prevents tampering with video data
+- **Unique Nonces**: Each frame uses proper cryptographic nonces
 
-Important: The server must be reachable from the client on the TCP port (default `9999`). If the machines are on different networks (internet), you will need to configure router port forwarding or use VPN.
+## Testing Connectivity
 
-Server machine (public or LAN server)
-
-1. Create/activate the same venv and install dependencies (run in PowerShell on the server):
+**Check if partner is reachable:**
 ```powershell
-py -3.11 -m venv .venv311
-.\.venv311\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install opencv-python pycryptodome
+Test-NetConnection -ComputerName [PARTNER_IP] -Port 9998
+Test-NetConnection -ComputerName [PARTNER_IP] -Port 9999
 ```
 
-2. Find the server's IP address (use the address reachable by the client):
+**Find your IP address:**
 ```powershell
 ipconfig
-# Look for the IPv4 Address under the active network adapter (e.g. 192.168.1.42)
+# Look for IPv4 Address under your active network adapter
 ```
 
-3. Make sure the server's TCP port is open (example: allow port 9999 in Windows Firewall):
-```powershell
-New-NetFirewallRule -DisplayName "Allow 9999" -Direction Inbound -LocalPort 9999 -Protocol TCP -Action Allow
-```
+## Single Machine Testing
 
-4. Run the server (replace `.<venv>` path if needed):
-```powershell
-.\.venv311\Scripts\python.exe .\server.py
-```
+For testing on one machine, you can run both clients:
+1. Run `client.py` and enter `127.0.0.1` as partner IP
+2. Run `partner_client.py` and enter `127.0.0.1` as partner IP
 
-Client machine
-
-1. Create/activate the venv and install dependencies exactly as on the server (see server step 1).
-
-2. Set the `HOST` in `client.py` to the server's IP (example 192.168.1.42) or run this one-liner to replace it:
-```powershell
-(Get-Content client.py) -replace "HOST = '.*'","HOST = '192.168.1.42'" | Set-Content client.py
-```
-
-3. Test connectivity to the server from the client (replace with your server IP):
-```powershell
-Test-NetConnection -ComputerName 192.168.1.42 -Port 9999
-# or use: tnc 192.168.1.42 -Port 9999
-```
-
-4. Run the client:
-```powershell
-.\.venv311\Scripts\python.exe .\client.py
-```
-
-Notes for internet (non-LAN) setups
-- If the server is behind a home router, enable port forwarding on the router from the public port (e.g. 9999) to the server's LAN IP and port 9999.
-- For public exposure, prefer using a secure tunnel (SSH, VPN) or a proper TURN/STUN signaling stack — this example does not include NAT traversal or authentication.
+Note: This uses the same camera for both, so you'll see identical feeds.
 
 Security note
 - The example uses a symmetric AES key hardcoded in the scripts for demonstration. For any real deployment:
