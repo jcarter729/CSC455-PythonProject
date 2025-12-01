@@ -151,28 +151,41 @@ class BidirectionalClient:
     def start(self):
         """Start both sending and receiving threads"""
         print("Starting bidirectional video client...")
-        
+
+        # Create the named windows so visibility checks won't fail before any frames arrive
+        try:
+            cv2.namedWindow("You (Local)")
+            cv2.namedWindow("Remote (Them)")
+        except Exception:
+            # If OpenCV window creation fails, continue; we'll still attempt to run
+            pass
+
         # Start receive thread (server for incoming video)
         receive_thread = threading.Thread(target=self.receive_video_thread)
         receive_thread.daemon = True
         receive_thread.start()
-        
+
         # Start send thread (client for outgoing video)
         send_thread = threading.Thread(target=self.send_video_thread)
         send_thread.daemon = True
         send_thread.start()
-        
+
         print("Press 'q' in any video window to quit")
         print("Both video windows should appear shortly...")
-        
+
         try:
-            # Keep main thread alive
+            # Keep main thread alive until the user quits or both windows are closed
             while self.running:
                 time.sleep(0.1)
-                # Check if windows were closed
-                if cv2.getWindowProperty("You (Local)", cv2.WND_PROP_VISIBLE) < 1:
-                    if cv2.getWindowProperty("Remote (Them)", cv2.WND_PROP_VISIBLE) < 1:
+                try:
+                    y_vis = cv2.getWindowProperty("You (Local)", cv2.WND_PROP_VISIBLE)
+                    r_vis = cv2.getWindowProperty("Remote (Them)", cv2.WND_PROP_VISIBLE)
+                    # Only break if both windows existed and are now closed
+                    if y_vis >= 0 and r_vis >= 0 and y_vis < 1 and r_vis < 1:
                         break
+                except cv2.error:
+                    # If OpenCV throws because the window hasn't been created yet, ignore and continue
+                    pass
         except KeyboardInterrupt:
             print("Interrupted by user")
             self.running = False
