@@ -1,130 +1,168 @@
-# Real‑Time Encrypted Video Conferencing
+#Encrypted Video Chat
 
-This project demonstrates a bidirectional encrypted video conferencing system using Python, OpenCV, sockets, and PyCryptodome. Both participants can see each other's video feeds simultaneously with end-to-end encryption.
+Real-time encrypted video conferencing between two computers. Both participants can see each other simultaneously with AES-GCM encryption.
 
-## Quick Start (Windows / PowerShell)
+## What This Does
 
-### Setup Environment
+- **Bidirectional Video**: Both people can see each other at the same time
+- **End-to-End Encryption**: All video data is encrypted with AES-GCM
+- **No Central Server**: Direct peer-to-peer connection between computers
+- **Dynamic IP Support**: Enter partner's IP address at runtime
 
-**Create a Python 3.11 venv and install dependencies:**
+## Prerequisites
+
+- **Python 3.11+** installed on both computers
+- **Webcam** on both computers
+- **Network connection** between computers (same WiFi/LAN or internet)
+- **Windows PowerShell** (instructions below are for Windows)
+
+## Setup Instructions
+
+### Step 1: Install Dependencies (Both Computers)
+
+Run these commands on **BOTH** computers:
+
 ```powershell
-py -3.11 -m venv .venv311
-.\.venv311\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install opencv-python pycryptodome numpy
+# Install required packages
+pip install opencv-python pycryptodome numpy
 ```
 
-**Alternate (run without activating):**
+### Step 2: Configure Firewall (Both Computers)
+
+Open PowerShell as **Administrator** and run on **BOTH** computers:
+
 ```powershell
-.\.venv311\Scripts\python.exe -m pip install --upgrade pip
-.\.venv311\Scripts\python.exe -m pip install opencv-python pycryptodome numpy
+# Allow incoming connections on required ports
+New-NetFirewallRule -DisplayName "Video Chat Port 9998" -Direction Inbound -LocalPort 9998 -Protocol TCP -Action Allow
+New-NetFirewallRule -DisplayName "Video Chat Port 9999" -Direction Inbound -LocalPort 9999 -Protocol TCP -Action Allow
 ```
 
-### Running Bidirectional Video Chat
+### Step 3: Find IP Addresses
 
-**Machine A (your computer):**
+On **BOTH** computers, find your IP address:
+
 ```powershell
-.\.venv311\Scripts\Activate.ps1
-python .\client.py
-```
-- When prompted, enter Machine B's IP address
-- You'll see two windows: "You (Local)" and "Remote (Them)"
-
-**Machine B (partner's computer):**
-```powershell
-.\.venv311\Scripts\Activate.ps1
-python .\partner_client.py
-```
-- When prompted, enter Machine A's IP address
-- You'll see two windows: "You (Local)" and "Remote (Them)"
-
-### Firewall Setup Required
-
-Both machines need these ports open:
-```powershell
-New-NetFirewallRule -DisplayName "Video Chat 9998" -Direction Inbound -LocalPort 9998 -Protocol TCP -Action Allow
-New-NetFirewallRule -DisplayName "Video Chat 9999" -Direction Inbound -LocalPort 9999 -Protocol TCP -Action Allow
+ipconfig
 ```
 
-## Notes & Troubleshooting
+Look for the **IPv4 Address** under your active network adapter (example: `192.168.1.100`)
 
-- **Server terminal blocks** — the server prints `Server listening...` and holds the terminal. Open a second terminal for the client.
-- **`ModuleNotFoundError: No module named 'cv2'`** — make sure you installed packages into the same interpreter used to run the scripts. Using the `.venv311` Python above is recommended.
-  - Check interpreter version:
-    ```powershell
-    .\.venv311\Scripts\python.exe --version
-    .\.venv311\Scripts\python.exe -m pip --version
-    ```
-- **Camera can't open / MSMF errors** — Windows sometimes has issues with the default Media Foundation backend. If you see warnings about `videoio(MSMF)` or `can't grab frame`, try forcing DirectShow in the scripts or test manually:
-  - Quick test (DirectShow):
-    ```powershell
-    .\.venv311\Scripts\python.exe -c "import cv2; cap=cv2.VideoCapture(0, cv2.CAP_DSHOW); print('opened', cap.isOpened()); ret,frame=cap.read(); print('read', ret); cap.release()"
-    ```
-  - To force DirectShow in the code, change `cv2.VideoCapture(0)` to `cv2.VideoCapture(0, cv2.CAP_DSHOW)` in `client.py` and/or `server.py`.
-- **Camera sharing** — many webcams cannot be opened by two processes at the same time. If both server and client try to open the same physical webcam, one will fail. Workarounds:
-  - Run the server first, then the client.
-  - Use a prerecorded video file on one side: edit the capture call to `cv2.VideoCapture('sample.mp4')` for the client or server you want to simulate.
-  - Use a virtual webcam driver (3rd-party) if you need two simultaneous webcam streams.
+## 🎬 Starting the Application
 
-## Useful utilities
+### Computer A (First Person)
 
-- Save the environment packages so you can recreate the venv later:
-```powershell
-.\.venv311\Scripts\python.exe -m pip freeze > requirements.txt
-```
+1. **Run the client:**
+   ```powershell
+   python client.py
+   ```
 
-- Delete an unused venv to reclaim space (example: remove `./.venv` if you don't need it):
-```powershell
-Remove-Item -Recurse -Force .\.venv
-```
+2. **Enter partner's IP when prompted:**
+   ```
+   === Bidirectional Encrypted Video Chat ===
+   This machine will:
+   - Send video TO partner on port 9999
+   - Receive video FROM partner on port 9998
 
-## Files
-- `client.py` – bidirectional video client for Machine A
-- `partner_client.py` – bidirectional video client for Machine B  
-- `server.py` – *(legacy, not used in bidirectional setup)*
+   Enter your partner's IP address: 192.168.1.200
+   ```
 
-## How It Works
+3. **Wait for connection** - You'll see "Listening for incoming video on port 9998"
 
-### Bidirectional Architecture
-Each machine runs a client that acts as both sender and receiver:
+### Computer B (Second Person)
 
-**Machine A (`client.py`):**
-- Sends video TO Machine B on port 9999
-- Receives video FROM Machine B on port 9998
+1. **Run the partner client:**
+   ```powershell
+   python partner_client.py
+   ```
 
-**Machine B (`partner_client.py`):**
-- Sends video TO Machine A on port 9998  
-- Receives video FROM Machine A on port 9999
+2. **Enter first person's IP when prompted:**
+   ```
+   === Bidirectional Encrypted Video Chat (Partner) ===
+   This machine will:
+   - Send video TO partner on port 9998
+   - Receive video FROM partner on port 9999
 
-### Security Features
-- **AES-GCM Encryption**: All video frames encrypted before transmission
-- **Authenticated Encryption**: Prevents tampering with video data
-- **Unique Nonces**: Each frame uses proper cryptographic nonces
+   Enter your partner's IP address: 192.168.1.100
+   ```
 
-## Testing Connectivity
+3. **Connection established** - Both video windows should appear!
 
-**Check if partner is reachable:**
+## 📺 What You'll See
+
+Once connected, both computers will show:
+
+- **"You (Local)"** window - Your own camera feed
+- **"Remote (Them)"** window - Partner's camera feed
+
+Press **'q'** in any window to disconnect.
+
+## Troubleshooting
+
+### Connection Issues
+
+**Test connectivity between computers:**
 ```powershell
 Test-NetConnection -ComputerName [PARTNER_IP] -Port 9998
 Test-NetConnection -ComputerName [PARTNER_IP] -Port 9999
 ```
 
-**Find your IP address:**
+**If connection fails:**
+- Verify IP addresses are correct
+- Check firewall rules are applied
+- Ensure both computers are on same network
+- Try temporarily disabling Windows Firewall for testing
+
+### Camera Issues
+
+**If camera won't open:**
 ```powershell
-ipconfig
-# Look for IPv4 Address under your active network adapter
+# Test camera access
+python -c "import cv2; cap=cv2.VideoCapture(0); print('Camera working:', cap.isOpened()); cap.release()"
 ```
 
-## Single Machine Testing
+**Force DirectShow if needed (add to code):**
+```python
+cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Instead of cv2.VideoCapture(0)
+```
 
-For testing on one machine, you can run both clients:
-1. Run `client.py` and enter `127.0.0.1` as partner IP
-2. Run `partner_client.py` and enter `127.0.0.1` as partner IP
+### Port Already in Use
 
-Note: This uses the same camera for both, so you'll see identical feeds.
+**Check what's using the ports:**
+```powershell
+netstat -an | findstr :9998
+netstat -an | findstr :9999
+```
 
-Security note
-- The example uses a symmetric AES key hardcoded in the scripts for demonstration. For any real deployment:
-  - Use a secure key exchange (e.g., Diffie-Hellman over TLS) and unique keys per session.
-  - Never hardcode long-term secrets into source files in production.\
+**Kill processes if needed or restart computers**
 
+## Internet/Remote Connections
+
+For connections over the internet (not same network):
+
+1. **Router Port Forwarding**: Forward ports 9998 and 9999 to your computer
+2. **Use Public IP**: Use your router's public IP instead of local IP
+3. **VPN Alternative**: Use VPN to create virtual LAN connection
+
+## Security Notes
+
+- **Shared Key**: Both computers use the same encryption key (hardcoded for demo)
+- **Production Use**: Replace hardcoded key with proper key exchange
+- **Network Security**: Use VPN for internet connections when possible
+
+## Files
+
+- `client.py` - Main client for Computer A
+- `partner_client.py` - Client for Computer B  
+- `server.py` - Legacy file (not used)
+
+## Quick Test (Same Computer)
+
+To test on a single computer:
+
+1. Run `client.py` in one terminal, enter `127.0.0.1`
+2. Run `partner_client.py` in another terminal, enter `127.0.0.1`
+3. Both will use the same camera (you'll see identical feeds)
+
+---
+
+**Ready to start your encrypted video chat!** 🎉
