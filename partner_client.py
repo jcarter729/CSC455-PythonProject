@@ -188,20 +188,13 @@ class BidirectionalClient:
         print("Cleanup complete")
 
 if __name__ == "__main__":
-    # Configuration - CHANGE THESE FOR EACH MACHINE
+    # Configuration for MACHINE B (Partner's machine)
     
-    # MACHINE A Configuration (Your machine):
+    # MACHINE B Configuration:
     client = BidirectionalClient(
-        server_host='172.26.29.7',  # Partner's IP (where to send your video)
-        send_port=9999,             # Port to send to on partner's machine
-        receive_port=9998           # Port to listen on for partner's video
+        server_host='172.26.85.81',  # Your IP (where to send partner's video)  
+        send_port=9998,              # Port to send to on your machine
+        receive_port=9999            # Port to listen on for your video
     )
-    
-    # MACHINE B Configuration (Partner's machine):
-    # client = BidirectionalClient(
-    #     server_host='172.26.85.81',  # Your IP (where to send partner's video)  
-    #     send_port=9998,              # Port to send to on your machine
-    #     receive_port=9999            # Port to listen on for your video
-    # )
     
     client.start()
