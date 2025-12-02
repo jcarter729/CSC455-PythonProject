@@ -565,13 +565,18 @@ class RoomWindow(tk.Toplevel):
         # Always try to use discovered room info if available
         partner = self.partner_ip.get().strip()
         partner_port = self.partner_port.get()
-        # Try to get the latest discovered info for this room
         discovered = None
         if hasattr(self.app, 'discovered_rooms') and self.room.get('id') in getattr(self.app, 'discovered_rooms', {}):
             discovered = self.app.discovered_rooms[self.room.get('id')]
         if discovered:
             partner = discovered.get('ip', partner)
-            partner_port = discovered.get('port', partner_port)
+            partner_port = discovered.get('port', None)
+            print(f"[DEBUG] Using discovered info: ip={partner}, port={partner_port}")
+        else:
+            print(f"[DEBUG] Using fallback info: ip={partner}, port={partner_port}")
+        if not partner_port or partner_port == 0:
+            print("[WARNING] Partner port missing or zero, defaulting to 9999 (may be incorrect)")
+            partner_port = 9999
         self.key = derive_key(self.passphrase.get())
         self.running = True
         self.cap = cv2.VideoCapture(0)
