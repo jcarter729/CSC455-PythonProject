@@ -3,7 +3,7 @@ from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 
 # Symmetric key for encrypting IP and port (in production, store securely!)
-_SECRET_KEY = b"Coding_every_day_keeps_bugs_away!"  # 32 bytes for AES-256
+_SECRET_KEY = b"Coding_every_day_keeps_bug_away!"  # 32 bytes for AES-256
 
 def encrypt_value(plaintext: str) -> str:
     cipher = AES.new(_SECRET_KEY, AES.MODE_GCM)
@@ -26,7 +26,11 @@ def get_all_ports():
             for user in db.users.find({}, {"port": 1}):
                 port = user.get("port")
                 if port:
-                    ports.add(int(port))
+                    try:
+                        port_val = int(decrypt_value(port))
+                        ports.add(port_val)
+                    except Exception:
+                        pass
         except Exception:
             pass
     else:
@@ -36,7 +40,11 @@ def get_all_ports():
                 for u in users.values():
                     port = u.get("port")
                     if port:
-                        ports.add(int(port))
+                        try:
+                            port_val = int(decrypt_value(port))
+                            ports.add(port_val)
+                        except Exception:
+                            pass
         except Exception:
             pass
     return ports
@@ -359,6 +367,17 @@ def get_user(username: str):
             if not d:
                 return None
             d2 = {k: v for k, v in d.items() if k != 'username'}
+            # Decrypt ip and port if present
+            if 'ip' in d2:
+                try:
+                    d2['ip'] = decrypt_value(d2['ip'])
+                except Exception:
+                    pass
+            if 'port' in d2:
+                try:
+                    d2['port'] = int(decrypt_value(d2['port']))
+                except Exception:
+                    d2['port'] = None
             return d2
         except Exception as e:
             print("get_user DB error:\n", traceback.format_exc())
@@ -369,7 +388,20 @@ def get_user(username: str):
                 pass
             return None
     users = load_users() or {}
-    return users.get(username)
+    user = users.get(username)
+    # Decrypt for local file as well, if present
+    if user:
+        if 'ip' in user:
+            try:
+                user['ip'] = decrypt_value(user['ip'])
+            except Exception:
+                pass
+        if 'port' in user:
+            try:
+                user['port'] = int(decrypt_value(user['port']))
+            except Exception:
+                user['port'] = None
+    return user
 
 def update_user(username: str, data: dict) -> bool:
     if not username:
