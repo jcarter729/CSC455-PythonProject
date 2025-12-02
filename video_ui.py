@@ -461,6 +461,8 @@ class RoomWindow(tk.Toplevel):
         self.btn_start = tk.Button(btns, text="Start", command=self.start_stream)
         self.btn_start.pack(side=tk.LEFT)
         tk.Button(btns, text="Stop", command=self.stop_stream).pack(side=tk.LEFT, padx=(6, 0))
+        self.btn_connect = tk.Button(btns, text="Connect to Partner", command=self.manual_connect, state="disabled")
+        self.btn_connect.pack(side=tk.LEFT, padx=(6, 0))
         tk.Button(btns, text="Exit", command=self._exit_room).pack(side=tk.LEFT, padx=(6, 0))
         vids = tk.Frame(self)
         vids.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
@@ -486,14 +488,8 @@ class RoomWindow(tk.Toplevel):
         self.key = None
         self._disco_thread = None
 
-        # Host: bind server socket and start broadcasting correct port immediately
+        # Host: start broadcasting immediately, and update port after Start
         if self.is_host:
-            # Bind server socket and get port immediately
-            self.server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.server_sock.bind(('0.0.0.0', 0))
-            self.receive_port = self.server_sock.getsockname()[1]
-            print(f"[DEBUG] Host bound server socket on port {self.receive_port}")
             def disco():
                 import json, time, socket
                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -501,11 +497,17 @@ class RoomWindow(tk.Toplevel):
                     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
                 except Exception:
                     pass
+                last_port = 9999
                 while True:
+                    # Use the real port if available
+                    port = getattr(self, 'receive_port', 9999)
+                    if port != last_port:
+                        print(f"[DEBUG] Host discovery broadcast: port changed to {port}")
+                        last_port = port
                     payload = json.dumps({
                         'id': self.room.get('id'),
                         'name': self.room.get('name'),
-                        'port': self.receive_port
+                        'port': port
                     }).encode('utf-8')
                     try:
                         sock.sendto(payload, ('<broadcast>', DISCOVERY_PORT))
@@ -523,12 +525,10 @@ class RoomWindow(tk.Toplevel):
                     pass
             self._disco_thread = threading.Thread(target=disco, daemon=True)
             self._disco_thread.start()
-        # Non-host: disable Start until discovered; Host: always enabled
+        # Non-host: disable Start until discovered
         if not self.is_host:
             self.btn_start.config(state=tk.DISABLED)
             self._check_discovered()
-        else:
-            self.btn_start.config(state=tk.NORMAL)
 
     def _check_discovered(self):
         # Enable Start if discovered info is available
@@ -634,17 +634,102 @@ class RoomWindow(tk.Toplevel):
         if not self.cap.isOpened():
             messagebox.showwarning("Camera", "Unable to open camera. Trying with DirectShow...")
             self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-        # Start receive thread using already-bound server_sock and receive_port
+            if not self.cap.isOpened():
+                messagebox.showerror("Camera Error", "Cannot access camera. Please check camera permissions and ensure no other application is using it.")
+                self.running = False
+                return
         def start_receive():
+            server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server.bind(('0.0.0.0', 0))
+            assigned_port = server.getsockname()[1]
+            self.receive_port = assigned_port
+            self.server_sock = server
+            # Update UI to show the actual port
+            try:
+                self.ip_port_label.config(text=f"Your IP: {self._local_ip()}:{assigned_port} (Share this with partner!)")
+            except Exception:
+                pass
+            print(f"[INFO] Share this with your partner: {self._local_ip()}:{assigned_port}")
             if self._is_socket_open(self.send_sock):
-                self._send_encrypted_metadata(self.send_sock, {"ip": self._local_ip(), "port": self.receive_port, "user": self.app.current_user})
-            t_recv = threading.Thread(target=self._receive_thread, args=(self.receive_port,), daemon=True)
+                self._send_encrypted_metadata(self.send_sock, {"ip": self._local_ip(), "port": assigned_port, "user": self.app.current_user})
+            t_recv = threading.Thread(target=self._receive_thread, args=(assigned_port,), daemon=True)
             t_recv.start()
         start_receive()
+        # Start local video display immediately
+        self._update_local()
+        # Enable manual connect button
+        try:
+            self.btn_connect.config(state="normal")
+        except Exception:
+            pass
         if partner and partner_port:
             t_send = threading.Thread(target=self._send_thread, args=(partner, partner_port), daemon=True)
             t_send.start()
-        self._update_local()
+        if self.is_host:
+            def disco():
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                try:
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                except Exception:
+                    pass
+                payload = json.dumps({
+                    'id': self.room.get('id'),
+                    'name': self.room.get('name'),
+                    'port': self.receive_port
+                }).encode('utf-8')
+                while self.running:
+                    try:
+                        sock.sendto(payload, ('<broadcast>', DISCOVERY_PORT))
+                    except Exception:
+                        try:
+                            sock.sendto(payload, ('255.255.255.255', DISCOVERY_PORT))
+                        except Exception:
+                            pass
+                    time.sleep(DISCOVERY_INTERVAL)
+                try:
+                    sock.close()
+                except Exception:
+                    pass
+            self._disco_thread = threading.Thread(target=disco, daemon=True)
+            self._disco_thread.start()
+
+    def manual_connect(self):
+        """Manually connect to partner using IP:Port from the input fields"""
+        if not self.running:
+            messagebox.showerror("Connection Error", "Please start your camera first!")
+            return
+            
+        partner = self.partner_ip.get().strip()
+        try:
+            partner_port = int(self.partner_port.get())
+        except (ValueError, TypeError):
+            messagebox.showerror("Connection Error", "Please enter a valid port number!")
+            return
+        
+        if not partner:
+            messagebox.showerror("Connection Error", "Please enter partner's IP address!")
+            return
+            
+        if partner_port <= 0 or partner_port > 65535:
+            messagebox.showerror("Connection Error", "Please enter a valid port number (1-65535)!")
+            return
+            
+        print(f"[INFO] Manually connecting to {partner}:{partner_port}")
+        self.btn_connect.config(text="Connecting...", state="disabled")
+        
+        # Start the send thread to connect to partner
+        t_send = threading.Thread(target=self._send_thread, args=(partner, partner_port), daemon=True)
+        t_send.start()
+        
+        # Re-enable button after a short delay
+        def reset_button():
+            time.sleep(2)
+            try:
+                self.btn_connect.config(text="Connect to Partner", state="normal")
+            except Exception:
+                pass
+        threading.Thread(target=reset_button, daemon=True).start()
 
     def stop_stream(self):
         self.running = False
