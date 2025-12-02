@@ -486,8 +486,14 @@ class RoomWindow(tk.Toplevel):
         self.key = None
         self._disco_thread = None
 
-        # Host: start broadcasting immediately, and update port after Start
+        # Host: bind server socket and start broadcasting correct port immediately
         if self.is_host:
+            # Bind server socket and get port immediately
+            self.server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.server_sock.bind(('0.0.0.0', 0))
+            self.receive_port = self.server_sock.getsockname()[1]
+            print(f"[DEBUG] Host bound server socket on port {self.receive_port}")
             def disco():
                 import json, time, socket
                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -495,17 +501,11 @@ class RoomWindow(tk.Toplevel):
                     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
                 except Exception:
                     pass
-                last_port = 9999
                 while True:
-                    # Use the real port if available
-                    port = getattr(self, 'receive_port', 9999)
-                    if port != last_port:
-                        print(f"[DEBUG] Host discovery broadcast: port changed to {port}")
-                        last_port = port
                     payload = json.dumps({
                         'id': self.room.get('id'),
                         'name': self.room.get('name'),
-                        'port': port
+                        'port': self.receive_port
                     }).encode('utf-8')
                     try:
                         sock.sendto(payload, ('<broadcast>', DISCOVERY_PORT))
@@ -523,10 +523,12 @@ class RoomWindow(tk.Toplevel):
                     pass
             self._disco_thread = threading.Thread(target=disco, daemon=True)
             self._disco_thread.start()
-        # Non-host: disable Start until discovered
+        # Non-host: disable Start until discovered; Host: always enabled
         if not self.is_host:
             self.btn_start.config(state=tk.DISABLED)
             self._check_discovered()
+        else:
+            self.btn_start.config(state=tk.NORMAL)
 
     def _check_discovered(self):
         # Enable Start if discovered info is available
@@ -632,48 +634,16 @@ class RoomWindow(tk.Toplevel):
         if not self.cap.isOpened():
             messagebox.showwarning("Camera", "Unable to open camera. Trying with DirectShow...")
             self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        # Start receive thread using already-bound server_sock and receive_port
         def start_receive():
-            server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            server.bind(('0.0.0.0', 0))
-            assigned_port = server.getsockname()[1]
-            self.receive_port = assigned_port
-            self.server_sock = server
             if self._is_socket_open(self.send_sock):
-                self._send_encrypted_metadata(self.send_sock, {"ip": self._local_ip(), "port": assigned_port, "user": self.app.current_user})
-            t_recv = threading.Thread(target=self._receive_thread, args=(assigned_port,), daemon=True)
+                self._send_encrypted_metadata(self.send_sock, {"ip": self._local_ip(), "port": self.receive_port, "user": self.app.current_user})
+            t_recv = threading.Thread(target=self._receive_thread, args=(self.receive_port,), daemon=True)
             t_recv.start()
         start_receive()
         if partner and partner_port:
             t_send = threading.Thread(target=self._send_thread, args=(partner, partner_port), daemon=True)
             t_send.start()
-        if self.is_host:
-            def disco():
-                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                try:
-                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-                except Exception:
-                    pass
-                payload = json.dumps({
-                    'id': self.room.get('id'),
-                    'name': self.room.get('name'),
-                    'port': self.receive_port
-                }).encode('utf-8')
-                while self.running:
-                    try:
-                        sock.sendto(payload, ('<broadcast>', DISCOVERY_PORT))
-                    except Exception:
-                        try:
-                            sock.sendto(payload, ('255.255.255.255', DISCOVERY_PORT))
-                        except Exception:
-                            pass
-                    time.sleep(DISCOVERY_INTERVAL)
-                try:
-                    sock.close()
-                except Exception:
-                    pass
-            self._disco_thread = threading.Thread(target=disco, daemon=True)
-            self._disco_thread.start()
         self._update_local()
 
     def stop_stream(self):
