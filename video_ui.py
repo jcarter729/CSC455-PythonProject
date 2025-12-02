@@ -29,56 +29,42 @@ DISCOVERY_INTERVAL = 2.0
 
 class VideoRoomApp:
     def join_room(self):
-        sel = self.listbox.curselection()
-        if not sel:
-            messagebox.showinfo("Select room", "Please select a room to join or create a new one.")
+        # Prompt for partner username
+        partner_username = simpledialog.askstring("Connect to Partner", "Enter your partner's username:")
+        if not partner_username:
+            messagebox.showinfo("Input required", "Please enter your partner's username.")
             return
-        idx = sel[0]
-        room = self.display_rooms[idx]
-        if room.get("password"):
-            pw = simpledialog.askstring("Password required", "Enter room password:", show="*")
-            if pw != room.get("password"):
-                messagebox.showerror("Wrong password", "The password you entered is incorrect.")
-                return
-        if room.get('discovered'):
-            partner_ip = room.get('ip')
-            partner_port = room.get('port', 9999)
-            if not partner_ip or not partner_port:
-                messagebox.showerror("Connection", "Could not find the host's IP or port. Please wait for the room to be discovered.")
-                return
-            w = RoomWindow(self.root, room, is_host=False, app=self, partner_ip=partner_ip, partner_port=partner_port)
+        if partner_username == self.current_user:
+            messagebox.showerror("Invalid", "You cannot connect to yourself.")
             return
-        # Fallback: try to find partner IP from users database
-        users = load_users()
-        partner_ip = None
-        partner_port = None
-        for username, data in users.items():
-            if username != self.current_user and data.get('ip'):
-                ip_data = data.get('ip')
-                try:
-                    if isinstance(ip_data, dict) and 'nonce' in ip_data:
-                        pw = room.get('password') or ''
-                        key = derive_key(pw)
-                        nonce = bytes.fromhex(ip_data['nonce'])
-                        ct = bytes.fromhex(ip_data['ct'])
-                        tag = bytes.fromhex(ip_data['tag'])
-                        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
-                        partner_ip = cipher.decrypt_and_verify(ct, tag).decode('utf-8')
-                    else:
-                        partner_ip = str(ip_data)
-                    partner_port = data.get('port', 9999)
-                    break
-                except Exception:
-                    continue
-        if not partner_ip:
-            messagebox.showinfo("Connection", 
-                "No other users found in this room yet.\n\n" +
-                "To connect:\n" +
-                "1. Make sure the other person has created an account and is logged in\n" +
-                "2. They should create the room first (as host)\n" +
-                "3. Wait for their room to appear in 'discovered' rooms, then join\n\n" +
-                "Or ask them to share their IP address directly.")
+        # Fetch partner info from MongoDB
+        from db_helpers import get_user
+        partner_data = get_user(partner_username)
+        if not partner_data or not partner_data.get('ip'):
+            messagebox.showerror("Not found", f"Could not find user '{partner_username}' or their IP address.")
             return
+        partner_ip = partner_data.get('ip')
+        partner_port = partner_data.get('port', 9999)
+        # Use a random open port for this user
+        import socket
+        my_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        my_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        my_sock.bind(('0.0.0.0', 0))
+        my_port = my_sock.getsockname()[1]
+        my_ip = self._local_ip()
+        my_sock.close()
+        # Update own info in MongoDB
+        from db_helpers import update_user
+        update_user(self.current_user, {**partner_data, 'ip': my_ip, 'port': my_port})
+        # Create a room object for the session
+        room = {
+            'id': str(uuid.uuid4()),
+            'name': f"{self.current_user} & {partner_username}",
+            'owner': self.current_user,
+            'partner': partner_username,
+            'password': None
+        }
+        # Start the video room window and auto-connect
         w = RoomWindow(self.root, room, is_host=False, app=self, partner_ip=partner_ip, partner_port=partner_port)
 
     def __init__(self, root):
