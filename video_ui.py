@@ -418,26 +418,6 @@ class RoomWindow(tk.Toplevel):
             sock.sendall(msg)
         except Exception as e:
             print(f"Error sending encrypted metadata: {e}")
-        def _send_encrypted_metadata(self, sock, metadata: dict):
-            try:
-                # Encrypt the IP address with the room password
-                ip = metadata.get('ip')
-                if ip and self.key:
-                    nonce = get_random_bytes(12)
-                    cipher = AES.new(self.key, AES.MODE_GCM, nonce=nonce)
-                    ct = cipher.encrypt(ip.encode('utf-8'))
-                    tag = cipher.digest()
-                    metadata['ip_encrypted'] = {
-                        'nonce': nonce.hex(),
-                        'ct': ct.hex(),
-                        'tag': tag.hex()
-                    }
-                    del metadata['ip']
-                payload = pickle.dumps(metadata)
-                msg = struct.pack("Q", len(payload)) + payload
-                sock.sendall(msg)
-            except Exception as e:
-                print(f"Error sending encrypted metadata: {e}")
 
     def _is_socket_open(self, sock):
         try:
@@ -715,6 +695,7 @@ class RoomWindow(tk.Toplevel):
                 sock.connect((partner_ip, partner_port))
                 sock.settimeout(None)
                 self.send_sock = sock
+                print(f"Connected to {partner_ip}:{partner_port} for sending video")
                 last_err = None
                 break
             except Exception as e:
@@ -760,6 +741,15 @@ class RoomWindow(tk.Toplevel):
             conn.settimeout(None)
             self.conn = conn
             print(f"Connected from {addr}")
+            
+            # Show connection status in UI
+            try:
+                def update_remote_status():
+                    pil = self._make_placeholder("Connected - waiting for video...")
+                    self._schedule_remote_update(pil)
+                self.after(1, update_remote_status)
+            except Exception:
+                pass
         except socket.timeout:
             print("No incoming connection within timeout")
             return
@@ -794,16 +784,33 @@ class RoomWindow(tk.Toplevel):
                 except Exception as e:
                     print(f"Decryption failed: {e}")
                     continue
+                # Try to decode as video frame first
+                try:
+                    # Decode JPEG to image
+                    nparr = np.frombuffer(plaintext, np.uint8)
+                    frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    
+                    if frame is not None:
+                        # Convert BGR to RGB for PIL
+                        img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        pil = Image.fromarray(img)
+                        # Schedule UI update on main thread
+                        self._schedule_remote_update(pil)
+                        continue
+                except Exception:
+                    # Not a video frame, try as control message
+                    pass
+                
+                # Try to decode as control message
                 try:
                     inner = pickle.loads(plaintext)
+                    if isinstance(inner, dict) and inner.get("control"):
+                        if inner.get("control") == "close":
+                            self.running = False
+                            break
                 except Exception:
-                    inner = None
-                if isinstance(inner, dict) and inner.get("control"):
-                    if inner.get("control") == "close":
-                        self.running = False
-                        break
-                else:
-                    pass
+                    # Not a control message either, skip
+                    continue
             except Exception as e:
                 print(f"Receive processing error: {e}")
                 continue
