@@ -1,3 +1,22 @@
+from base64 import b64encode, b64decode
+from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
+
+# Symmetric key for encrypting IP and port (in production, store securely!)
+_SECRET_KEY = b"Coding_every_day_keeps_bugs_away!"  # 32 bytes for AES-256
+
+def encrypt_value(plaintext: str) -> str:
+    cipher = AES.new(_SECRET_KEY, AES.MODE_GCM)
+    ciphertext, tag = cipher.encrypt_and_digest(plaintext.encode('utf-8'))
+    return b64encode(cipher.nonce + tag + ciphertext).decode('utf-8')
+
+def decrypt_value(ciphertext_b64: str) -> str:
+    raw = b64decode(ciphertext_b64)
+    nonce = raw[:16]
+    tag = raw[16:32]
+    ciphertext = raw[32:]
+    cipher = AES.new(_SECRET_KEY, AES.MODE_GCM, nonce=nonce)
+    return cipher.decrypt_and_verify(ciphertext, tag).decode('utf-8')
 def get_all_ports():
     """Return a set of all ports currently assigned to users in the DB."""
     db = _get_mongo_db()
@@ -430,12 +449,19 @@ def create_user_with_ip_port(username, password, ip, port=None):
             used_ports = get_all_ports()
             if int(port) in used_ports:
                 raise ValueError(f"Port {port} is already in use.")
+        try:
+            encrypted_ip = encrypt_value(ip)
+            encrypted_port = encrypt_value(str(port))
+        except Exception as enc_e:
+            tb = traceback.format_exc()
+            print("Encryption error in create_user_with_ip_port:\n", tb)
+            raise enc_e
         doc = {
             'username': username,
             'password_hash': hashed.hex(),
             'salt': salt.hex(),
-            'ip': ip,
-            'port': port
+            'ip': encrypted_ip,
+            'port': encrypted_port
         }
         db.users.insert_one(doc)
         return True
