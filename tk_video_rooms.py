@@ -255,10 +255,24 @@ class VideoRoomApp:
     def _account_menu(self):
         dlg = tk.Toplevel(self.root)
         dlg.title('Account')
-        tk.Button(dlg, text='Create User', command=lambda: self.user_manager.create_user()).pack(fill=tk.X)
+        tk.Button(dlg, text='Create User', command=lambda: self._create_user_with_port(dlg)).pack(fill=tk.X)
         tk.Button(dlg, text='Login', command=lambda: self.user_manager.login()).pack(fill=tk.X)
         tk.Button(dlg, text='Delete User', command=lambda: self.user_manager.delete_user()).pack(fill=tk.X)
         tk.Button(dlg, text='Logout', command=lambda: self._logout(dlg)).pack(fill=tk.X)
+
+    def _create_user_with_port(self, parent):
+        username = simpledialog.askstring('Create User', 'Enter username:', parent=parent)
+        if not username:
+            return
+        password = simpledialog.askstring('Create User', 'Enter password:', parent=parent, show='*')
+        if not password:
+            return
+        ip = self._local_ip() if hasattr(self, '_local_ip') else '127.0.0.1'
+        # Assign a unique port automatically
+        if db_helpers.create_user_with_ip_port(username, password, ip):
+            messagebox.showinfo("User", "User created successfully.")
+        else:
+            messagebox.showerror("User", "Failed to create user.")
 
     def _logout(self, parent=None):
         self.user_manager.logged_in_user = None
@@ -648,9 +662,8 @@ class RoomWindow(tk.Toplevel):
         self.is_host = is_host
         self.app = app
         self.title(f"Room: {room.get('name')}")
-        self.send_port = tk.IntVar(value=9998)
-        self.receive_port = tk.IntVar(value=9999)
-        self.partner_ip = tk.StringVar()
+        # Ports are now handled automatically; no UI fields needed
+        self.partner_username = tk.StringVar()
         self.passphrase = tk.StringVar(value=room.get("password") or "secret")
         top = tk.Frame(self)
         top.pack(fill=tk.X, padx=6, pady=6)
@@ -658,14 +671,10 @@ class RoomWindow(tk.Toplevel):
         tk.Label(top, text=f"This machine IP: {self._local_ip()} (share with partner)").pack(anchor=tk.W)
         cfg = tk.Frame(self)
         cfg.pack(fill=tk.X, padx=6, pady=(6, 0))
-        tk.Label(cfg, text="Partner IP:").grid(row=0, column=0, sticky=tk.W)
-        tk.Entry(cfg, textvariable=self.partner_ip).grid(row=0, column=1, sticky=tk.EW)
-        tk.Label(cfg, text="Send port:").grid(row=1, column=0, sticky=tk.W)
-        tk.Entry(cfg, textvariable=self.send_port).grid(row=1, column=1, sticky=tk.EW)
-        tk.Label(cfg, text="Receive port:").grid(row=2, column=0, sticky=tk.W)
-        tk.Entry(cfg, textvariable=self.receive_port).grid(row=2, column=1, sticky=tk.EW)
-        tk.Label(cfg, text="Passphrase:").grid(row=3, column=0, sticky=tk.W)
-        tk.Entry(cfg, textvariable=self.passphrase, show="*").grid(row=3, column=1, sticky=tk.EW)
+        tk.Label(cfg, text="Partner Username:").grid(row=0, column=0, sticky=tk.W)
+        tk.Entry(cfg, textvariable=self.partner_username).grid(row=0, column=1, sticky=tk.EW)
+        tk.Label(cfg, text="Passphrase:").grid(row=1, column=0, sticky=tk.W)
+        tk.Entry(cfg, textvariable=self.passphrase, show="*").grid(row=1, column=1, sticky=tk.EW)
         cfg.columnconfigure(1, weight=1)
         btns = tk.Frame(self)
         btns.pack(fill=tk.X, padx=6, pady=(6, 3))
@@ -700,11 +709,23 @@ class RoomWindow(tk.Toplevel):
     def start_stream(self):
         if self.running:
             return
-        partner = self.partner_ip.get().strip()
-        if not partner:
-            if not self.is_host:
-                messagebox.showerror("Partner IP required", "Enter partner IP to connect to.")
+        partner_username = self.partner_username.get().strip()
+        partner_ip = None
+        partner_port = None
+        if partner_username:
+            import db_helpers
+            partner_user = db_helpers.get_user(partner_username)
+            if partner_user:
+                partner_ip = partner_user.get('ip') or partner_user.get('ip_address')
+                partner_port = partner_user.get('port')
+            if not partner_ip or not partner_port:
+                from tkinter import messagebox
+                messagebox.showerror("User Not Found", f"Could not find IP and port for user '{partner_username}'.")
                 return
+        else:
+            from tkinter import messagebox
+            messagebox.showerror("Missing Username", "Please enter the partner's username.")
+            return
         self.key = derive_key(self.passphrase.get())
         self.running = True
         self.cap = cv2.VideoCapture(0)
@@ -713,8 +734,8 @@ class RoomWindow(tk.Toplevel):
             self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
         t_recv = threading.Thread(target=self._receive_thread, daemon=True)
         t_recv.start()
-        if partner:
-            t_send = threading.Thread(target=self._send_thread, args=(partner,), daemon=True)
+        if partner_ip and partner_port:
+            t_send = threading.Thread(target=self._send_thread, args=(partner_ip, int(partner_port)), daemon=True)
             t_send.start()
         self._update_local()
     def stop_stream(self):
@@ -767,13 +788,12 @@ class RoomWindow(tk.Toplevel):
             self.destroy()
         except Exception:
             pass
-    def _send_thread(self, partner_ip):
-        port = int(self.send_port.get())
+    def _send_thread(self, partner_ip, partner_port):
         time.sleep(1)
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(10)
-            sock.connect((partner_ip, port))
+            sock.connect((partner_ip, partner_port))
             sock.settimeout(None)
             self.send_sock = sock
         except Exception as e:
@@ -805,7 +825,18 @@ class RoomWindow(tk.Toplevel):
             pass
     def _receive_thread(self):
         import pickle
-        port = int(self.receive_port.get())
+        # Use our own assigned port (from DB) for receiving
+        import db_helpers
+        my_username = getattr(self.app.user_manager, 'logged_in_user', None) if self.app else None
+        my_port = None
+        if my_username:
+            my_user = db_helpers.get_user(my_username)
+            if my_user:
+                my_port = my_user.get('port')
+        if not my_port:
+            print("Could not determine own port for receiving.")
+            return
+        port = int(my_port)
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind(('0.0.0.0', port))

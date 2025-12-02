@@ -1,3 +1,34 @@
+def get_all_ports():
+    """Return a set of all ports currently assigned to users in the DB."""
+    db = _get_mongo_db()
+    ports = set()
+    if db is not None:
+        try:
+            for user in db.users.find({}, {"port": 1}):
+                port = user.get("port")
+                if port:
+                    ports.add(int(port))
+        except Exception:
+            pass
+    else:
+        try:
+            with open(USERS_FILE, "r", encoding="utf-8") as f:
+                users = json.load(f)
+                for u in users.values():
+                    port = u.get("port")
+                    if port:
+                        ports.add(int(port))
+        except Exception:
+            pass
+    return ports
+
+def find_available_port(start=10000, end=65535):
+    """Find a port not already assigned to any user."""
+    used = get_all_ports()
+    for port in range(start, end):
+        if port not in used:
+            return port
+    raise RuntimeError("No available ports in range.")
 import socket
 import os
 import json
@@ -378,3 +409,42 @@ def hash_password(password: str, salt: bytes = None):
         salt = os.urandom(16)
     dk = pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 200_000, dklen=32)
     return salt, dk
+
+def create_user_with_ip_port(username, password, ip, port=None):
+    db = _get_mongo_db()
+    if db is None:
+        try:
+            from tkinter import messagebox
+            messagebox.showerror('MongoDB', 'MongoDB not configured or unreachable; cannot create user.')
+        except Exception:
+            pass
+        print('create_user aborted: no MongoDB')
+        return False
+    try:
+        salt, hashed = hash_password(password)
+        # Assign a unique port if not provided
+        if port is None:
+            port = find_available_port()
+        else:
+            # Ensure port is unique
+            used_ports = get_all_ports()
+            if int(port) in used_ports:
+                raise ValueError(f"Port {port} is already in use.")
+        doc = {
+            'username': username,
+            'password_hash': hashed.hex(),
+            'salt': salt.hex(),
+            'ip': ip,
+            'port': port
+        }
+        db.users.insert_one(doc)
+        return True
+    except Exception as e:
+        tb = traceback.format_exc()
+        print("create_user_with_ip_port DB error:\n", tb)
+        try:
+            from tkinter import messagebox
+            messagebox.showerror('MongoDB', f'Failed to create user in MongoDB:\n{tb.splitlines()[-1]}')
+        except Exception:
+            pass
+        return False
