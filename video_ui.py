@@ -40,30 +40,54 @@ class VideoRoomApp:
             if pw != room.get("password"):
                 messagebox.showerror("Wrong password", "The password you entered is incorrect.")
                 return
+        
+        # Check if this is a discovered room (from network discovery)
+        if room.get('discovered'):
+            partner_ip = room.get('ip')
+            partner_port = room.get('port', 9999)
+            if partner_ip:
+                w = RoomWindow(self.root, room, is_host=False, app=self, partner_ip=partner_ip, partner_port=partner_port)
+                return
+        
+        # Try to find partner IP from users database (fallback method)
         users = load_users()
         partner_ip = None
-        partner_name = None
+        partner_port = None
         for username, data in users.items():
             if username != self.current_user and data.get('ip'):
-                encrypted_ip = data.get('ip')
-                # Decrypt partner's IP using room password
+                # Try both encrypted and plain IP formats
+                ip_data = data.get('ip')
                 try:
-                    pw = room.get('password') or ''
-                    key = derive_key(pw)
-                    nonce = bytes.fromhex(encrypted_ip['nonce'])
-                    ct = bytes.fromhex(encrypted_ip['ct'])
-                    tag = bytes.fromhex(encrypted_ip['tag'])
-                    cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
-                    ip = cipher.decrypt_and_verify(ct, tag).decode('utf-8')
-                    partner_ip = ip
-                    partner_name = username
+                    if isinstance(ip_data, dict) and 'nonce' in ip_data:
+                        # Encrypted format - try to decrypt
+                        pw = room.get('password') or ''
+                        key = derive_key(pw)
+                        nonce = bytes.fromhex(ip_data['nonce'])
+                        ct = bytes.fromhex(ip_data['ct'])
+                        tag = bytes.fromhex(ip_data['tag'])
+                        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+                        partner_ip = cipher.decrypt_and_verify(ct, tag).decode('utf-8')
+                    else:
+                        # Plain format
+                        partner_ip = str(ip_data)
+                    
+                    partner_port = data.get('port', 9999)
                     break
                 except Exception:
                     continue
+        
         if not partner_ip:
-            messagebox.showerror("Connection", "Could not find any available user's IP address in this room. Make sure at least one other user is online and logged in.")
+            # Show a more helpful error message
+            messagebox.showinfo("Connection", 
+                "No other users found in this room yet.\n\n" +
+                "To connect:\n" +
+                "1. Make sure the other person has created an account and is logged in\n" +
+                "2. They should create the room first (as host)\n" +
+                "3. Wait for their room to appear in 'discovered' rooms, then join\n\n" +
+                "Or ask them to share their IP address directly.")
             return
-        w = RoomWindow(self.root, room, is_host=False, app=self, partner_ip=partner_ip)
+        
+        w = RoomWindow(self.root, room, is_host=False, app=self, partner_ip=partner_ip, partner_port=partner_port)
 
     def __init__(self, root):
         self.root = root
@@ -101,6 +125,16 @@ class VideoRoomApp:
         t.start()
 
         tk.Label(frame, text="Info: This app shows local rooms only. Share your IP with your partner.").pack(anchor=tk.W, pady=(8, 0))
+
+    def _local_ip(self):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(('8.8.8.8', 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return '127.0.0.1'
 
     def refresh_rooms(self):
         self.rooms = load_rooms()
@@ -292,7 +326,7 @@ class VideoRoomApp:
             return
         salt, h = hash_password(password)
         ip = self._local_ip() if hasattr(self, '_local_ip') else RoomWindow._local_ip(self)
-        data = {'salt': salt.hex(), 'hash': h.hex(), 'ip': ip}
+        data = {'salt': salt.hex(), 'hash': h.hex(), 'ip': ip, 'port': 9999}
         ok = create_user(username, data)
         if not ok:
             users[username] = data
@@ -333,7 +367,7 @@ class VideoRoomApp:
         _, h = hash_password(password, salt)
         if h == expected:
             ip = self._local_ip() if hasattr(self, '_local_ip') else RoomWindow._local_ip(self)
-            update_user(username, {**u, 'ip': ip})
+            update_user(username, {**u, 'ip': ip, 'port': 9999})
             self.current_user = username
             self.user_label.config(text=f'User: {username}')
             messagebox.showinfo('Login', 'Logged in')
@@ -421,7 +455,7 @@ class RoomWindow(tk.Toplevel):
         except Exception:
             return '127.0.0.1'
 
-    def __init__(self, parent, room, is_host=False, app=None, partner_ip=None):
+    def __init__(self, parent, room, is_host=False, app=None, partner_ip=None, partner_port=None):
         super().__init__(parent)
         self.geometry('900x600')
         self.room = room
@@ -429,7 +463,7 @@ class RoomWindow(tk.Toplevel):
         self.app = app
         self.title(f"Room: {room.get('name')}")
         self.partner_ip = tk.StringVar(value=partner_ip or "")
-        self.partner_port = tk.IntVar(value=0)
+        self.partner_port = tk.IntVar(value=partner_port or 0)
         self.passphrase = tk.StringVar(value=room.get("password") or "secret")
         top = tk.Frame(self)
         top.pack(fill=tk.X, padx=6, pady=6)
