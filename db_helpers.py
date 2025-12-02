@@ -345,8 +345,7 @@ def create_user(username: str, data: dict) -> bool:
         print('create_user aborted: no MongoDB')
         return False
     try:
-        ip_address = socket.gethostbyname(socket.gethostname())
-        doc = {'username': username, **(data or {}), 'ip_address': ip_address}
+        doc = {'username': username, **(data or {})}
         db.users.insert_one(doc)
         return True
     except Exception as e:
@@ -416,8 +415,7 @@ def update_user(username: str, data: dict) -> bool:
         print('update_user aborted: no MongoDB')
         return False
     try:
-        ip_address = socket.gethostbyname(socket.gethostname())
-        doc = {'username': username, **(data or {}), 'ip_address': ip_address}
+        doc = {'username': username, **(data or {})}
         db.users.update_one({'username': username}, {'$set': doc}, upsert=True)
         return True
     except Exception as e:
