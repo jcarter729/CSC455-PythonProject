@@ -562,8 +562,16 @@ class RoomWindow(tk.Toplevel):
     def start_stream(self):
         if self.running:
             return
+        # Always try to use discovered room info if available
         partner = self.partner_ip.get().strip()
         partner_port = self.partner_port.get()
+        # Try to get the latest discovered info for this room
+        discovered = None
+        if hasattr(self.app, 'discovered_rooms') and self.room.get('id') in getattr(self.app, 'discovered_rooms', {}):
+            discovered = self.app.discovered_rooms[self.room.get('id')]
+        if discovered:
+            partner = discovered.get('ip', partner)
+            partner_port = discovered.get('port', partner_port)
         self.key = derive_key(self.passphrase.get())
         self.running = True
         self.cap = cv2.VideoCapture(0)
