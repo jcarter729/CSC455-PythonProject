@@ -292,18 +292,7 @@ class VideoRoomApp:
             return
         salt, h = hash_password(password)
         ip = self._local_ip() if hasattr(self, '_local_ip') else RoomWindow._local_ip(self)
-        # Encrypt IP using AES-256-GCM
-        key = derive_key(password)
-        nonce = get_random_bytes(12)
-        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
-        ct = cipher.encrypt(ip.encode('utf-8'))
-        tag = cipher.digest()
-        encrypted_ip = {
-            'nonce': nonce.hex(),
-            'ct': ct.hex(),
-            'tag': tag.hex()
-        }
-        data = {'salt': salt.hex(), 'hash': h.hex(), 'ip': encrypted_ip}
+        data = {'salt': salt.hex(), 'hash': h.hex(), 'ip': ip}
         ok = create_user(username, data)
         if not ok:
             users[username] = data
@@ -344,18 +333,7 @@ class VideoRoomApp:
         _, h = hash_password(password, salt)
         if h == expected:
             ip = self._local_ip() if hasattr(self, '_local_ip') else RoomWindow._local_ip(self)
-            # Encrypt IP using AES-256-GCM
-            key = derive_key(password)
-            nonce = get_random_bytes(12)
-            cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
-            ct = cipher.encrypt(ip.encode('utf-8'))
-            tag = cipher.digest()
-            encrypted_ip = {
-                'nonce': nonce.hex(),
-                'ct': ct.hex(),
-                'tag': tag.hex()
-            }
-            update_user(username, {**u, 'ip': encrypted_ip})
+            update_user(username, {**u, 'ip': ip})
             self.current_user = username
             self.user_label.config(text=f'User: {username}')
             messagebox.showinfo('Login', 'Logged in')
@@ -406,6 +384,26 @@ class RoomWindow(tk.Toplevel):
             sock.sendall(msg)
         except Exception as e:
             print(f"Error sending encrypted metadata: {e}")
+        def _send_encrypted_metadata(self, sock, metadata: dict):
+            try:
+                # Encrypt the IP address with the room password
+                ip = metadata.get('ip')
+                if ip and self.key:
+                    nonce = get_random_bytes(12)
+                    cipher = AES.new(self.key, AES.MODE_GCM, nonce=nonce)
+                    ct = cipher.encrypt(ip.encode('utf-8'))
+                    tag = cipher.digest()
+                    metadata['ip_encrypted'] = {
+                        'nonce': nonce.hex(),
+                        'ct': ct.hex(),
+                        'tag': tag.hex()
+                    }
+                    del metadata['ip']
+                payload = pickle.dumps(metadata)
+                msg = struct.pack("Q", len(payload)) + payload
+                sock.sendall(msg)
+            except Exception as e:
+                print(f"Error sending encrypted metadata: {e}")
 
     def _is_socket_open(self, sock):
         try:
