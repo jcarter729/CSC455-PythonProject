@@ -486,6 +486,47 @@ class RoomWindow(tk.Toplevel):
         self.key = None
         self._disco_thread = None
 
+        # Host: start broadcasting immediately
+        if self.is_host:
+            def disco():
+                import json, time, socket
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                try:
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                except Exception:
+                    pass
+                payload = json.dumps({
+                    'id': self.room.get('id'),
+                    'name': self.room.get('name'),
+                    'port': 9999  # Placeholder until start_stream sets real port
+                }).encode('utf-8')
+                while not self.running:
+                    try:
+                        sock.sendto(payload, ('<broadcast>', DISCOVERY_PORT))
+                    except Exception:
+                        try:
+                            sock.sendto(payload, ('255.255.255.255', DISCOVERY_PORT))
+                        except Exception:
+                            pass
+                    time.sleep(DISCOVERY_INTERVAL)
+                try:
+                    sock.close()
+                except Exception:
+                    pass
+            self._disco_thread = threading.Thread(target=disco, daemon=True)
+            self._disco_thread.start()
+        # Non-host: disable Start until discovered
+        if not self.is_host:
+            self.btn_start.config(state=tk.DISABLED)
+            self._check_discovered()
+
+    def _check_discovered(self):
+        # Enable Start if discovered info is available
+        if hasattr(self.app, 'discovered_rooms') and self.room.get('id') in getattr(self.app, 'discovered_rooms', {}):
+            self.btn_start.config(state=tk.NORMAL)
+        else:
+            self.after(1000, self._check_discovered)
+
     def _exit_room(self):
         self.running = False
         try:
