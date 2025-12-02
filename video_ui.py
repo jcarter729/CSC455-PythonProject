@@ -486,7 +486,7 @@ class RoomWindow(tk.Toplevel):
         self.key = None
         self._disco_thread = None
 
-        # Host: start broadcasting immediately
+        # Host: start broadcasting immediately, and update port after Start
         if self.is_host:
             def disco():
                 import json, time, socket
@@ -495,12 +495,18 @@ class RoomWindow(tk.Toplevel):
                     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
                 except Exception:
                     pass
-                payload = json.dumps({
-                    'id': self.room.get('id'),
-                    'name': self.room.get('name'),
-                    'port': 9999  # Placeholder until start_stream sets real port
-                }).encode('utf-8')
-                while not self.running:
+                last_port = 9999
+                while True:
+                    # Use the real port if available
+                    port = getattr(self, 'receive_port', 9999)
+                    if port != last_port:
+                        print(f"[DEBUG] Host discovery broadcast: port changed to {port}")
+                        last_port = port
+                    payload = json.dumps({
+                        'id': self.room.get('id'),
+                        'name': self.room.get('name'),
+                        'port': port
+                    }).encode('utf-8')
                     try:
                         sock.sendto(payload, ('<broadcast>', DISCOVERY_PORT))
                     except Exception:
@@ -509,6 +515,8 @@ class RoomWindow(tk.Toplevel):
                         except Exception:
                             pass
                     time.sleep(DISCOVERY_INTERVAL)
+                    if hasattr(self, 'running') and not self.running:
+                        break
                 try:
                     sock.close()
                 except Exception:
