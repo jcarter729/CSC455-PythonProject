@@ -651,6 +651,23 @@ class RoomWindow(tk.Toplevel):
             except Exception:
                 pass
             print(f"[INFO] Share this with your partner: {self._local_ip()}:{assigned_port}")
+            
+            # Store our connection info in the database for automatic discovery
+            try:
+                from db_helpers import update_user, get_user, update_room, get_room_by_id
+                # Update current user with IP and port
+                user_data = get_user(self.app.current_user) or {}
+                user_data.update({
+                    'ip': self._local_ip(),
+                    'port': assigned_port,
+                    'room_id': self.room.get('id'),
+                    'online': True
+                })
+                update_user(self.app.current_user, user_data)
+                print(f"[DEBUG] Stored connection info for {self.app.current_user}: {self._local_ip()}:{assigned_port}")
+            except Exception as e:
+                print(f"[WARNING] Could not store connection info in database: {e}")
+            
             if self._is_socket_open(self.send_sock):
                 self._send_encrypted_metadata(self.send_sock, {"ip": self._local_ip(), "port": assigned_port, "user": self.app.current_user})
             t_recv = threading.Thread(target=self._receive_thread, args=(assigned_port,), daemon=True)
@@ -663,6 +680,55 @@ class RoomWindow(tk.Toplevel):
             self.btn_connect.config(state="normal")
         except Exception:
             pass
+        
+        # Auto-discover and connect to partners in the same room
+        def auto_discover_partners():
+            time.sleep(2)  # Give time for our info to be stored
+            try:
+                from db_helpers import load_users, get_room_by_id
+                users = load_users()
+                room_id = self.room.get('id')
+                current_user = self.app.current_user
+                
+                for username, user_data in users.items():
+                    if (username != current_user and 
+                        user_data.get('room_id') == room_id and 
+                        user_data.get('online') and
+                        user_data.get('ip') and user_data.get('port')):
+                        
+                        partner_ip = user_data['ip']
+                        partner_port = user_data['port']
+                        print(f"[INFO] Auto-connecting to {username} at {partner_ip}:{partner_port}")
+                        
+                        # Update UI to show we found a partner
+                        try:
+                            self.after(1, lambda: self.ip_port_label.config(
+                                text=f"Your IP: {self._local_ip()}:{self.receive_port} | Connecting to {username}..."))
+                        except Exception:
+                            pass
+                        
+                        # Start connection
+                        t_send = threading.Thread(target=self._send_thread, args=(partner_ip, partner_port), daemon=True)
+                        t_send.start()
+                        break
+                else:
+                    print(f"[INFO] No other users found in room {room_id}. Waiting for someone to join...")
+            except Exception as e:
+                print(f"[ERROR] Auto-discovery failed: {e}")
+        
+        # Start auto-discovery in background
+        threading.Thread(target=auto_discover_partners, daemon=True).start()
+        
+        # Start periodic partner check (every 10 seconds)
+        def periodic_partner_check():
+            while self.running:
+                time.sleep(10)
+                if not hasattr(self, 'send_sock') or not self.send_sock:
+                    auto_discover_partners()
+        
+        threading.Thread(target=periodic_partner_check, daemon=True).start()
+        
+        # Fallback manual connection if specified
         if partner and partner_port:
             t_send = threading.Thread(target=self._send_thread, args=(partner, partner_port), daemon=True)
             t_send.start()
@@ -733,6 +799,17 @@ class RoomWindow(tk.Toplevel):
 
     def stop_stream(self):
         self.running = False
+        
+        # Mark user as offline in database
+        try:
+            from db_helpers import update_user, get_user
+            user_data = get_user(self.app.current_user) or {}
+            user_data['online'] = False
+            update_user(self.app.current_user, user_data)
+            print(f"[DEBUG] Marked {self.app.current_user} as offline")
+        except Exception as e:
+            print(f"[WARNING] Could not update offline status: {e}")
+        
         pil = self._make_placeholder("No video")
         self._schedule_local_update(pil)
         delete_on_stop = True
@@ -821,6 +898,12 @@ class RoomWindow(tk.Toplevel):
                 sock.settimeout(None)
                 self.send_sock = sock
                 print(f"Connected to {partner_ip}:{partner_port} for sending video")
+                # Update UI to show successful connection
+                try:
+                    self.after(1, lambda: self.ip_port_label.config(
+                        text=f"Your IP: {self._local_ip()}:{self.receive_port} | Connected to partner!"))
+                except Exception:
+                    pass
                 last_err = None
                 break
             except Exception as e:
