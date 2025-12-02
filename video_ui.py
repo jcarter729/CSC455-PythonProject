@@ -679,10 +679,26 @@ class RoomWindow(tk.Toplevel):
 
     def _send_thread(self, partner_ip, partner_port):
         time.sleep(1)
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # Validate partner_ip and partner_port
+        print(f"[DEBUG] Attempting to connect to partner_ip={partner_ip!r}, partner_port={partner_port!r}")
+        if not partner_ip or not isinstance(partner_ip, str) or partner_ip.strip() == '':
+            print("[ERROR] partner_ip is invalid or empty. Aborting send thread.")
+            return
+        try:
+            partner_port = int(partner_port)
+        except Exception:
+            print(f"[ERROR] partner_port '{partner_port}' is not a valid integer. Aborting send thread.")
+            return
+        if partner_port <= 0 or partner_port > 65535:
+            print(f"[ERROR] partner_port '{partner_port}' is out of valid range. Aborting send thread.")
+            return
         last_err = None
         for attempt in range(3):
+            sock = None
             try:
+                print(f"[DEBUG] Creating new socket for attempt {attempt+1}")
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                print(f"[DEBUG] Connect attempt {attempt+1} to {partner_ip}:{partner_port}")
                 sock.settimeout(5)
                 sock.connect((partner_ip, partner_port))
                 sock.settimeout(None)
@@ -692,12 +708,14 @@ class RoomWindow(tk.Toplevel):
                 break
             except Exception as e:
                 last_err = e
+                print(f"[ERROR] Connect attempt {attempt+1} failed: {e}")
+                if sock:
+                    try:
+                        sock.close()
+                    except Exception as ce:
+                        print(f"[DEBUG] Error closing socket after failed attempt: {ce}")
                 time.sleep(1)
         if last_err is not None:
-            try:
-                sock.close()
-            except Exception:
-                pass
             print(f"Send connect error: {last_err}")
             return
         while self.running:
