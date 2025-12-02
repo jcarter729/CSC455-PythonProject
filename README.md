@@ -1,161 +1,190 @@
-# Real‑Time Encrypted Video Conferencing
+#Encrypted Video Chat
 
-This project demonstrates a simple encrypted video conferencing app using Python, OpenCV, sockets, and PyCryptodome.
+Real-time encrypted video conferencing between two computers. Both participants can see each other simultaneously with AES-GCM encryption.
 
-## Quick Start (Windows / PowerShell)
+## What This Does
 
-Follow these exact commands to create a known-working environment and run both sides on one machine.
+- **Bidirectional Video**: Both people can see each other at the same time
+- **End-to-End Encryption**: All video data is encrypted with AES-GCM
+- **No Central Server**: Direct peer-to-peer connection between computers
+- **Dynamic IP Support**: Enter partner's IP address at runtime
 
-- **Create a Python 3.11 venv and install dependencies**
+## Prerequisites
+
+- **Python 3.11+** installed on both computers
+- **Webcam** on both computers
+- **Network connection** between computers (same WiFi/LAN or internet)
+- **Windows PowerShell** (instructions below are for Windows)
+
+## Setup Instructions
+
+### Step 1: Install Dependencies (Both Computers)
+
+Run these commands on **BOTH** computers:
+
 ```powershell
-py -3.11 -m venv .venv311
-.\.venv311\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install opencv-python pycryptodome
+# Install required packages
+pip install opencv-python pycryptodome numpy
 ```
 
-- **(Alternate — run without activating)**
+### Step 2: Configure Firewall (Both Computers)
+
+Open PowerShell as **Administrator** and run on **BOTH** computers:
+
 ```powershell
-.\.venv311\Scripts\python.exe -m pip install --upgrade pip
-.\.venv311\Scripts\python.exe -m pip install opencv-python pycryptodome
+# Allow incoming connections on required ports
+New-NetFirewallRule -DisplayName "Video Chat Port 9998" -Direction Inbound -LocalPort 9998 -Protocol TCP -Action Allow
+New-NetFirewallRule -DisplayName "Video Chat Port 9999" -Direction Inbound -LocalPort 9999 -Protocol TCP -Action Allow
 ```
 
-- **Set the client to connect to the local server (one-machine test)**
-  - Edit `client.py` and make sure the `HOST` line reads:
-    ```python
-    HOST = '127.0.0.1'
-    ```
-  - Or run this PowerShell one-liner (it replaces the HOST line automatically):
-    ```powershell
-(Get-Content client.py) -replace "HOST = '.*'","HOST = '127.0.0.1'" | Set-Content client.py
-    ```
+### Step 3: Find IP Addresses
 
-- **Run the server (Terminal 1)**
-```powershell
-# activate venv (optional)
-.\.venv311\Scripts\Activate.ps1
-# or run directly without activating:
-.\.venv311\Scripts\python.exe .\server.py
-```
+On **BOTH** computers, find your IP address:
 
-- **Run the client (Terminal 2 — new terminal)**
-```powershell
-.\.venv311\Scripts\Activate.ps1
-python .\client.py
-# or without activating:
-.\.venv311\Scripts\python.exe .\client.py
-```
-
-## Notes & Troubleshooting
-
-- **Server terminal blocks** — the server prints `Server listening...` and holds the terminal. Open a second terminal for the client.
-- **`ModuleNotFoundError: No module named 'cv2'`** — make sure you installed packages into the same interpreter used to run the scripts. Using the `.venv311` Python above is recommended.
-  - Check interpreter version:
-    ```powershell
-    .\.venv311\Scripts\python.exe --version
-    .\.venv311\Scripts\python.exe -m pip --version
-    ```
-- **Camera can't open / MSMF errors** — Windows sometimes has issues with the default Media Foundation backend. If you see warnings about `videoio(MSMF)` or `can't grab frame`, try forcing DirectShow in the scripts or test manually:
-  - Quick test (DirectShow):
-    ```powershell
-    .\.venv311\Scripts\python.exe -c "import cv2; cap=cv2.VideoCapture(0, cv2.CAP_DSHOW); print('opened', cap.isOpened()); ret,frame=cap.read(); print('read', ret); cap.release()"
-    ```
-  - To force DirectShow in the code, change `cv2.VideoCapture(0)` to `cv2.VideoCapture(0, cv2.CAP_DSHOW)` in `client.py` and/or `server.py`.
-- **Camera sharing** — many webcams cannot be opened by two processes at the same time. If both server and client try to open the same physical webcam, one will fail. Workarounds:
-  - Run the server first, then the client.
-  - Use a prerecorded video file on one side: edit the capture call to `cv2.VideoCapture('sample.mp4')` for the client or server you want to simulate.
-  - Use a virtual webcam driver (3rd-party) if you need two simultaneous webcam streams.
-
-## Useful utilities
-
-- Save the environment packages so you can recreate the venv later:
-```powershell
-.\.venv311\Scripts\python.exe -m pip freeze > requirements.txt
-```
-
-- Delete an unused venv to reclaim space (example: remove `./.venv` if you don't need it):
-```powershell
-Remove-Item -Recurse -Force .\.venv
-```
-
-## Files
-- `server.py` – listens for incoming video
-- `client.py` – connects and sends video
-
-## Quick Test (one machine)
-
-1. Create & install the venv as shown above.
-2. Ensure `client.py` has `HOST = '127.0.0.1'`.
-3. In Terminal 1 run the server:
-   ```powershell
-   .\.venv311\Scripts\python.exe .\server.py
-   ```
-4. In Terminal 2 run the client:
-   ```powershell
-   .\.venv311\Scripts\python.exe .\client.py
-   ```
-5. Press `q` in either OpenCV window to quit.
-
-If anything fails, copy the exact error output and paste it into an issue or here — the README intentionally includes the most common fixes so you don't need to repeat the setup process.
-
-## Run on Different Machines (server + client on separate computers)
-
-Follow these steps when the server and client are on different machines on the same LAN or over the internet.
-
-Important: The server must be reachable from the client on the TCP port (default `9999`). If the machines are on different networks (internet), you will need to configure router port forwarding or use VPN.
-
-Server machine (public or LAN server)
-
-1. Create/activate the same venv and install dependencies (run in PowerShell on the server):
-```powershell
-py -3.11 -m venv .venv311
-.\.venv311\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install opencv-python pycryptodome
-```
-
-2. Find the server's IP address (use the address reachable by the client):
 ```powershell
 ipconfig
-# Look for the IPv4 Address under the active network adapter (e.g. 192.168.1.42)
 ```
 
-3. Make sure the server's TCP port is open (example: allow port 9999 in Windows Firewall):
+Look for the **IPv4 Address** under your active network adapter (example: `192.168.1.100`)
+
+## Starting the Application
+
+**IMPORTANT: Startup Order Matters!**
+
+### Step 1: Partner (Computer B) Starts FIRST
+
+Your partner at `172.26.85.81` must start first:
+
 ```powershell
-New-NetFirewallRule -DisplayName "Allow 9999" -Direction Inbound -LocalPort 9999 -Protocol TCP -Action Allow
+python partner_client.py
 ```
 
-4. Run the server (replace `.<venv>` path if needed):
+Enter your IP address when prompted: `172.26.29.7`
+
+You'll see: `Listening for incoming video on port 9999`
+
+### Step 2: You (Computer A) Start SECOND
+
+After your partner is listening, then you run:
+
 ```powershell
-.\.venv311\Scripts\python.exe .\server.py
+python client.py
 ```
 
-Client machine
+Enter partner's IP when prompted: `172.26.85.81`
 
-1. Create/activate the venv and install dependencies exactly as on the server (see server step 1).
+### Step 3: Connection Should Establish
 
-2. Set the `HOST` in `client.py` to the server's IP (example 192.168.1.42) or run this one-liner to replace it:
+Both should see:
+- `Connected to [IP]:PORT for sending video`
+- `Receiving video from [IP]`
+- Two video windows appear
+
+## ⚠️ If "Cleanup complete" Appears Immediately
+
+This means connection failed. Try these fixes:
+
+### Fix 1: Check Partner is Running First
+- Partner MUST run `partner_client.py` first
+- Wait for "Listening for incoming video on port 9999"
+- Then you run `client.py`
+
+### Fix 2: Test Basic Connection
 ```powershell
-(Get-Content client.py) -replace "HOST = '.*'","HOST = '192.168.1.42'" | Set-Content client.py
+# You run this to test partner's port
+Test-NetConnection -ComputerName 172.26.85.81 -Port 9999
+
+# Partner runs this to test your port  
+Test-NetConnection -ComputerName 172.26.29.7 -Port 9998
 ```
 
-3. Test connectivity to the server from the client (replace with your server IP):
+### Fix 3: Simple Socket Test
+Have your partner run this first:
 ```powershell
-Test-NetConnection -ComputerName 192.168.1.42 -Port 9999
-# or use: tnc 192.168.1.42 -Port 9999
+python -c "import socket; s=socket.socket(); s.bind(('0.0.0.0', 9999)); s.listen(1); print('Ready on port 9999'); s.accept()"
 ```
 
-4. Run the client:
+Then you test connection:
 ```powershell
-.\.venv311\Scripts\python.exe .\client.py
+python -c "import socket; s=socket.socket(); s.connect(('172.26.85.81', 9999)); print('Connected!'); s.close()"
 ```
 
-Notes for internet (non-LAN) setups
-- If the server is behind a home router, enable port forwarding on the router from the public port (e.g. 9999) to the server's LAN IP and port 9999.
-- For public exposure, prefer using a secure tunnel (SSH, VPN) or a proper TURN/STUN signaling stack — this example does not include NAT traversal or authentication.
+## 📺 What You'll See
 
-Security note
-- The example uses a symmetric AES key hardcoded in the scripts for demonstration. For any real deployment:
-  - Use a secure key exchange (e.g., Diffie-Hellman over TLS) and unique keys per session.
-  - Never hardcode long-term secrets into source files in production.\
+Once connected, both computers will show:
 
+- **"You (Local)"** window - Your own camera feed
+- **"Remote (Them)"** window - Partner's camera feed
+
+Press **'q'** in any window to disconnect.
+
+## Troubleshooting
+
+### Connection Issues
+
+**Test connectivity between computers:**
+```powershell
+Test-NetConnection -ComputerName [PARTNER_IP] -Port 9998
+Test-NetConnection -ComputerName [PARTNER_IP] -Port 9999
+```
+
+**If connection fails:**
+- Verify IP addresses are correct
+- Check firewall rules are applied
+- Ensure both computers are on same network
+- Try temporarily disabling Windows Firewall for testing
+
+### Camera Issues
+
+**If camera won't open:**
+```powershell
+# Test camera access
+python -c "import cv2; cap=cv2.VideoCapture(0); print('Camera working:', cap.isOpened()); cap.release()"
+```
+
+**Force DirectShow if needed (add to code):**
+```python
+cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Instead of cv2.VideoCapture(0)
+```
+
+### Port Already in Use
+
+**Check what's using the ports:**
+```powershell
+netstat -an | findstr :9998
+netstat -an | findstr :9999
+```
+
+**Kill processes if needed or restart computers**
+
+## Internet/Remote Connections
+
+For connections over the internet (not same network):
+
+1. **Router Port Forwarding**: Forward ports 9998 and 9999 to your computer
+2. **Use Public IP**: Use your router's public IP instead of local IP
+3. **VPN Alternative**: Use VPN to create virtual LAN connection
+
+## Security Notes
+
+- **Shared Key**: Both computers use the same encryption key (hardcoded for demo)
+- **Production Use**: Replace hardcoded key with proper key exchange
+- **Network Security**: Use VPN for internet connections when possible
+
+## Files
+
+- `client.py` - Main client for Computer A
+- `partner_client.py` - Client for Computer B  
+- `server.py` - Legacy file (not used)
+
+## Quick Test (Same Computer)
+
+To test on a single computer:
+
+1. Run `client.py` in one terminal, enter `127.0.0.1`
+2. Run `partner_client.py` in another terminal, enter `127.0.0.1`
+3. Both will use the same camera (you'll see identical feeds)
+
+---
+
+**Ready to start your encrypted video chat!** 🎉
