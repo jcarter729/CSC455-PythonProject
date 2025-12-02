@@ -40,14 +40,44 @@ class VideoRoomApp:
             if pw != room.get("password"):
                 messagebox.showerror("Wrong password", "The password you entered is incorrect.")
                 return
-        # Always require discovered room info for connection
-        if not room.get('discovered'):
-            messagebox.showinfo("Connection", "You must wait for the host's room to appear in the 'discovered' rooms list before joining.\n\nThis ensures the correct connection info is used for video streaming.")
+        if room.get('discovered'):
+            partner_ip = room.get('ip')
+            partner_port = room.get('port', 9999)
+            if not partner_ip or not partner_port:
+                messagebox.showerror("Connection", "Could not find the host's IP or port. Please wait for the room to be discovered.")
+                return
+            w = RoomWindow(self.root, room, is_host=False, app=self, partner_ip=partner_ip, partner_port=partner_port)
             return
-        partner_ip = room.get('ip')
-        partner_port = room.get('port', 9999)
-        if not partner_ip or not partner_port:
-            messagebox.showerror("Connection", "Could not find the host's IP or port. Please wait for the room to be discovered.")
+        # Fallback: try to find partner IP from users database
+        users = load_users()
+        partner_ip = None
+        partner_port = None
+        for username, data in users.items():
+            if username != self.current_user and data.get('ip'):
+                ip_data = data.get('ip')
+                try:
+                    if isinstance(ip_data, dict) and 'nonce' in ip_data:
+                        pw = room.get('password') or ''
+                        key = derive_key(pw)
+                        nonce = bytes.fromhex(ip_data['nonce'])
+                        ct = bytes.fromhex(ip_data['ct'])
+                        tag = bytes.fromhex(ip_data['tag'])
+                        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+                        partner_ip = cipher.decrypt_and_verify(ct, tag).decode('utf-8')
+                    else:
+                        partner_ip = str(ip_data)
+                    partner_port = data.get('port', 9999)
+                    break
+                except Exception:
+                    continue
+        if not partner_ip:
+            messagebox.showinfo("Connection", 
+                "No other users found in this room yet.\n\n" +
+                "To connect:\n" +
+                "1. Make sure the other person has created an account and is logged in\n" +
+                "2. They should create the room first (as host)\n" +
+                "3. Wait for their room to appear in 'discovered' rooms, then join\n\n" +
+                "Or ask them to share their IP address directly.")
             return
         w = RoomWindow(self.root, room, is_host=False, app=self, partner_ip=partner_ip, partner_port=partner_port)
 
